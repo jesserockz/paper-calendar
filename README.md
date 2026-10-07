@@ -26,13 +26,22 @@ Each supported device has its own folder with its own prebuilt firmware, install
 
 ## Installation
 
-Open the [web installer](https://jesserockz.github.io/paper-calendar/) in Chrome or Edge, plug the device in via USB, and click the install button for your device. The same flow lets you provision your Wi-Fi credentials over USB (via [Improv Serial](https://www.improv-wifi.com/)). If you skip that, the device opens a `paper-calendar` fallback hotspot you can connect to and configure Wi-Fi through.
+Open the [web installer](https://jesserockz.github.io/paper-calendar/) in Chrome or Edge, plug the device in via USB, and click the install button for your device. The same flow lets you provision your Wi-Fi credentials over USB (via [Improv Serial](https://www.improv-wifi.com/)).
+
+If you skip that, there are two other ways to get the device onto Wi-Fi, both only active while no Wi-Fi credentials are saved:
+
+- **Bluetooth** ([Improv over BLE](https://www.improv-wifi.com/)): set it up from your phone or from Home Assistant's discovered devices.
+- **Fallback hotspot**: the device opens an open hotspot named `paper-calendar-xxxxxx` (a MAC address suffix). Its screen shows a QR code to join it; then open `192.168.4.1` to pick your network.
 
 No credentials are baked into the firmware: Home Assistant provisions the API encryption key automatically when the device is adopted, and every unit gets a unique hostname (a MAC address suffix).
 
 ## First-boot setup
 
-The device stays awake until setup is confirmed, so there is no race against deep sleep:
+The device stays awake until setup is confirmed, so there is no race against deep sleep. A device without saved Wi-Fi credentials first shows the Wi-Fi setup screen (see [Installation](#installation)):
+
+![Wi-Fi setup screen](static/screenshots/wifi-setup.png)
+
+Once it is connected, it moves on to the Home Assistant setup screen:
 
 ![Setup screen](static/screenshots/setup-screen.png)
 
@@ -113,11 +122,13 @@ api:
 
 ## Development
 
-The configuration is plain ESPHome YAML (requires ESPHome 2026.9.0 or newer), laid out per device:
+The configuration is plain ESPHome YAML (requires ESPHome 2026.9.0 or newer). Everything device-agnostic lives in [common/](common); each device folder holds only that device's hardware:
 
-- `<device>/<device>.yaml` - the complete device config (what gets adopted), e.g. [reterminal-e1001/reterminal-e1001.yaml](reterminal-e1001/reterminal-e1001.yaml). Every device uses the firmware name `paper-calendar`.
-- `<device>/<device>.factory.yaml` - the web-installer image for that device: the core config plus Improv Serial provisioning, dashboard import, and GitHub-release OTA updates.
-- [common/](common) - the render lambda and fonts shared by every device config and the screenshot tool.
+- [common/paper-calendar.yaml](common/paper-calendar.yaml) - the calendar itself: configuration entities, fetch / sleep / button logic, Wi-Fi setup, and the API, OTA, Wi-Fi and time setup. Every device includes it as a package, and every device uses the firmware name `paper-calendar`.
+- [common/factory.yaml](common/factory.yaml) - the web-installer extras: Improv Serial and Bluetooth provisioning, dashboard import, and GitHub-release OTA updates.
+- [common/calendar-render.yaml](common/calendar-render.yaml) and [common/fonts.yaml](common/fonts.yaml) - the render lambda and fonts, shared by every device config and the screenshot tool.
+- `<device>/<device>.yaml` - the device config (what gets adopted): `common/paper-calendar.yaml` plus the device's hardware, e.g. [reterminal-e1001/reterminal-e1001.yaml](reterminal-e1001/reterminal-e1001.yaml).
+- `<device>/<device>.factory.yaml` - the web-installer image for that device: its device config plus `common/factory.yaml`, and the project name and version.
 - [screenshots/screenshots.yaml](screenshots/screenshots.yaml) - a host-platform config that renders the display with demo events and saves the screenshots used on this page (`esphome run screenshots/screenshots.yaml`, then convert the BMPs from `screenshots/.esphome/snapshots/` to PNG in `static/screenshots/`).
 
 ```bash
@@ -125,3 +136,29 @@ esphome compile reterminal-e1001/reterminal-e1001.factory.yaml
 ```
 
 Releases are built automatically: pushes to `main` update a draft release via Release Drafter, the Build workflow builds every device group listed in [.github/workflows/build.yml](.github/workflows/build.yml) and attaches one manifest per device, and publishing the release deploys the [installer site](https://jesserockz.github.io/paper-calendar/).
+
+### Adding a device
+
+Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reterminal-e1001):
+
+`<device>/<device>.yaml` includes `../common/paper-calendar.yaml` under `packages:` and adds only hardware:
+
+- the `esp32:` block, and a `logger:` override if the USB serial is not the default port;
+- the display with `id: epaper` and `lambda: !include ../common/calendar-render.yaml`;
+- the battery voltage sensor with `id: battery_voltage`, in volts at the battery (the common package derives the **Battery** percentage from it);
+- the wake sources under `deep_sleep:` (the common package sets its `id: sleeper`), with `on_wake` calling the `wake_page_back`, `wake_page_forward` or `wake_cycle_view` scripts;
+- the buttons, calling the `action_page_back`, `action_page_forward`, `action_cycle_view` and `action_today` scripts;
+- these hook scripts, which the common package calls but never defines:
+
+| Hook script         | Called                                                        | reTerminal E1001                        |
+|---------------------|---------------------------------------------------------------|-----------------------------------------|
+| `feedback_click`    | On a button or wake press                                     | Buzzer click                            |
+| `feedback_home`     | On the jump back to today                                     | Buzzer chirp                            |
+| `feedback_ok`       | When **Confirm setup** is accepted                            | Buzzer chime                            |
+| `feedback_error`    | When **Confirm setup** is refused (Calendars empty)           | Buzzer double beep                      |
+| `read_battery`      | Once per wake, from `on_boot`; must update `battery_voltage`  | Powers the divider, samples, powers off |
+| `before_deep_sleep` | Right before `deep_sleep.enter`, which waits for it to finish | Nothing (`then: []`)                    |
+
+A device without a buzzer defines the `feedback_*` scripts as `then: []`. Keep any `esphome: on_boot:` in list form: package lists are concatenated, but a dict-form `on_boot` would replace the common one.
+
+`<device>/<device>.factory.yaml` includes the device config and `../common/factory.yaml` with the folder name as the `device` var (used for the dashboard import URL and the `firmware/<device>.manifest.json` update manifest), and carries the `esphome: project:` block itself, since the build workflow stamps the release version into the file it builds. Then add a build group for the folder in [.github/workflows/build.yml](.github/workflows/build.yml), an install button in [static/index.md](static/index.md), and a row in [Supported devices](#supported-devices).

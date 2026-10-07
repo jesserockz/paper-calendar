@@ -1,0 +1,60 @@
+# Factory extras for the prebuilt / web-installed firmware, shared by
+# every device's <device>.factory.yaml. All device functionality lives in
+# the device's core config; this package only adds what a shared
+# installer image needs. Once the device is adopted into an ESPHome
+# dashboard (via dashboard_import below) the user builds the core config
+# and these extras drop away.
+#
+# Include it with the device folder name as a var:
+#
+#   packages:
+#     factory: !include
+#       file: ../common/factory.yaml
+#       vars:
+#         device: <device>
+
+# The esphome: project: block stays in each <device>.factory.yaml: the
+# build workflow stamps the release version into the file it builds.
+
+esphome:
+  on_boot:
+    # Bluetooth provisioning only runs while the device has no Wi-Fi
+    # credentials, so normal wakes do not pay the BLE start-up cost.
+    - priority: 200  # after wifi has loaded its saved credentials (wifi sets up at 250)
+      then:
+        - if:
+            condition:
+              lambda: "return !wifi::global_wifi_component->has_sta();"
+            then:
+              - ble.enable:
+
+# The public location of the yaml file that is adopted into an ESPHome
+# dashboard: the device's core yaml, without the installer extras.
+dashboard_import:
+  package_import_url: github://jesserockz/paper-calendar/${device}/${device}.yaml@main
+
+# Wi-Fi provisioning over the USB port (ESP Web Tools / web.esphome.io).
+improv_serial:
+
+# Wi-Fi provisioning over Bluetooth (e.g. from Home Assistant's discovered
+# devices), enabled at boot only when no credentials are saved - see the
+# on_boot entry above. In ESPHome 2026.9 the component is esp32_improv; it
+# is renamed improv_ble in the next release.
+esp32_ble:
+  enable_on_boot: false
+
+esp32_improv:
+  authorizer: none
+
+# Used to pull OTA updates from GitHub releases
+http_request:
+
+ota:
+  - platform: http_request
+
+update:
+  - platform: http_request
+    name: Firmware
+    # Per-device manifest: the build workflow publishes one manifest per
+    # device folder, named after its build group.
+    source: https://jesserockz.github.io/paper-calendar/firmware/${device}.manifest.json

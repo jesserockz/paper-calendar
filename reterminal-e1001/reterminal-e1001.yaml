@@ -1,75 +1,33 @@
 # Seeed Studio reTerminal E1001 - battery powered calendar display
 #
-# - Shows Home Assistant calendar events fetched with calendar.get_events.
-# - Left / right buttons page backward / forward through the days.
-# - Green button: short press cycles the view (day <-> 3-day; the week
-#   view code remains but is disabled for now - too narrow to be useful),
-#   long press (1s) jumps back to today.
-# - Sleeps between refreshes; any of the three top buttons wakes it.
-#   The wake press also performs its normal action (left/right page from
-#   today, green cycles the view) - it beeps once the press registers.
-#   Green's long-press (back to today) only works while awake; a wake
-#   always starts on today anyway.
+# Hardware only: the calendar itself (entities, fetch and sleep logic,
+# render lambda and fonts) is the shared package in ../common, and this
+# file plugs the reTerminal into its hooks.
 #
-# This file (plus the shared fonts and render lambda in ../common) is
-# generic: it is the config an ESPHome dashboard adopts (the API
-# encryption key is provisioned by Home
-# Assistant on adoption, wifi comes from the fallback hotspot or your
-# dashboard secrets). The prebuilt/web-installed image is built from
-# reterminal-e1001.factory.yaml, which layers the installer extras
-# (Improv Serial, dashboard import, GitHub-release OTA updates) on top.
+# - Left / right buttons page backward / forward through the days.
+# - Green button: short press cycles the view (day <-> 3-day), long
+#   press (1s) jumps back to today.
+# - Any of the three top buttons wakes it from deep sleep. The wake press
+#   also performs its normal action (left/right page from today, green
+#   cycles the view) - it beeps once the press registers. Green's
+#   long-press (back to today) only works while awake; a wake always
+#   starts on today anyway.
+#
+# This file is generic: it is the config an ESPHome dashboard adopts (the
+# API encryption key is provisioned by Home Assistant on adoption, wifi
+# comes from the fallback hotspot or your dashboard secrets). The
+# prebuilt/web-installed image is built from reterminal-e1001.factory.yaml,
+# which layers the installer extras (Improv Serial and Bluetooth
+# provisioning, dashboard import, GitHub-release OTA updates) on top.
 # For a personal build with fixed credentials, include this file as a
 # package and add them on top - see the README for an example overlay.
-#
-# First-boot setup (device stays awake until this is done):
-# 1. ESPHome integration -> this device -> Configure ->
-#    tick "Allow the device to perform Home Assistant actions".
-# 2. Fill in the "Calendars" text entity with a comma separated list
-#    of calendar entity ids (e.g. "calendar.family, calendar.work").
-# 3. Optionally adjust the other options (see below).
-# 4. Press the "Confirm setup" button - only then does the device
-#    start its normal sleep cycle.
-#
-# Everything user-facing is a configuration entity on the device itself -
-# no HA helpers or YAML edits needed:
-#   - Calendars (text): comma separated calendar entity ids
-#   - Ignored events (text): comma separated event titles to hide
-#   - Long event names (select): truncate with "~" or word-wrap
-#   - Battery display (select): Percentage / Voltage / Both
-#   - Refresh interval (number): minutes asleep between refreshes
-#   - Awake time (number): seconds awake after boot / the last button press
-#   - 12-hour time (switch): clock format on the display
-#   - Downtime start / end (time): no refresh wakes between these times
-#     (buttons still wake the device); equal times disable the window
-#   - Prevent sleep (switch): keeps the device awake, e.g. for OTA updates
-#   - Confirm setup (button): finishes first-boot setup
 
-substitutions:
-  name: paper-calendar
-  friendly_name: Paper Calendar
-
-esphome:
-  name: ${name}
-  friendly_name: ${friendly_name}
-  # Shared firmware: every unit gets a unique hostname. A personal
-  # overlay (see the README) can override this to false.
-  name_add_mac_suffix: true
-  # 2026.9.0: epaper_spi seeed-reterminal-e1001 model and deep_sleep
-  # per-pin on_wake (calendar.get_events action responses need 2025.10.0)
-  min_version: 2026.9.0
-  on_boot:
-    priority: -100
-    then:
-      # Week view is disabled for now; clamp a previously stored selection
-      - lambda: |-
-          if (id(view_days) > 3)
-            id(view_days) = 3;
-      - script.execute: read_battery
-      - script.execute: idle_sleep
-      - script.execute: fetch_events
+packages:
+  # The device-agnostic calendar logic, fonts included
+  paper_calendar: !include ../common/paper-calendar.yaml
 
 esp32:
-  board: esp32-s3-devkitc-1
+  variant: esp32s3
   flash_size: 32MB
   framework:
     type: esp-idf
@@ -82,35 +40,8 @@ esp32:
 logger:
   hardware_uart: UART0
 
-api:
-  # No fixed key: Home Assistant provisions one when the device is adopted
-  # and the device stores it in flash. A personal overlay can pin a key.
-  encryption: {}
-
-ota:
-  - platform: esphome
-
-# No credentials baked in: the factory image provisions wifi over USB via
-# Improv Serial (see reterminal-e1001.factory.yaml) or through the
-# fallback hotspot below; an adopting dashboard injects its wifi secrets.
-wifi:
-  ap: {}
-
-captive_portal:
-
-time:
-  - platform: homeassistant
-    id: ha_time
-    on_time_sync:
-      - script.execute: fetch_events
-
 deep_sleep:
-  id: sleeper
-  # Sleep length comes from the "Refresh interval" number at each
-  # deep_sleep.enter call below. The on_wake triggers fire after globals
-  # are restored and before on_boot, so a wake press performs its normal
-  # button action on the first render. The beep confirms the press
-  # registered, since the e-paper takes a few seconds to update.
+  # Any of the three top buttons wakes the device and performs its action
   esp32_ext1_wakeup:
     mode: ANY_LOW
     pins:
@@ -120,233 +51,40 @@ deep_sleep:
           allow_other_uses: true
           ignore_strapping_warning: true
         on_wake:
-          - rtttl.play: "click:d=32,o=7,b=180:c"
-          - lambda: |-
-              // Week view disabled for now - the columns are too narrow
-              id(view_days) = id(view_days) == 1 ? 3 : 1;
+          - script.execute: wake_cycle_view
       # Right button: page forward
       - pin:
           number: GPIO4
           allow_other_uses: true
         on_wake:
-          - rtttl.play: "click:d=32,o=7,b=180:c"
-          - lambda: "id(day_offset) += id(view_days);"
+          - script.execute: wake_page_forward
       # Left button: page back
       - pin:
           number: GPIO5
           allow_other_uses: true
         on_wake:
-          - rtttl.play: "click:d=32,o=7,b=180:c"
-          - lambda: "id(day_offset) -= id(view_days);"
+          - script.execute: wake_page_back
 
-globals:
-  # Days from today to the first day shown. Deliberately not restored:
-  # every wake starts back on today.
-  - id: day_offset
-    type: int
-    initial_value: "0"
-  # 1 = day, 3 = 3-day, 7 = week. Restored across deep sleep.
-  - id: view_days
-    type: int
-    restore_value: true
-    initial_value: "1"
-  # Set by the "Confirm setup" button. Until then the device never
-  # sleeps, so there is time to fill in the entities below.
-  - id: setup_done
-    type: bool
-    restore_value: true
-    initial_value: "false"
-  # 0 = nothing fetched yet, 1 = data ok, 2 = last fetch failed
-  - id: data_state
-    type: int
-    initial_value: "0"
-  # True while a calendar.get_events response is outstanding. Blocks the
-  # idle timer for at most one extra cycle so the device does not sleep
-  # out from under the response (the action returns before it arrives).
-  - id: fetch_pending
-    type: bool
-    initial_value: "false"
-  # Retries for a dropped request. Home Assistant subscribes to device
-  # action calls shortly AFTER the API connection authenticates; an action
-  # sent in that window is silently discarded (api_connection.h checks
-  # service_call_subscription with no queue or warning). Reset on any
-  # completed fetch.
-  - id: fetch_retry
-    type: int
-    initial_value: "0"
-  # Fetched events, kept sorted by start. Parallel vectors: ISO start,
-  # ISO end, title. All-day events have a 10-character date-only start.
-  - id: cal_starts
-    type: std::vector<std::string>
-  - id: cal_ends
-    type: std::vector<std::string>
-  - id: cal_titles
-    type: std::vector<std::string>
-
-# ---- Configuration entities (set from Home Assistant) ----
-
-text:
-  # Comma separated calendar entity ids, e.g. "calendar.family, calendar.work"
-  - platform: template
-    id: calendar_ids
-    name: Calendars
-    entity_category: config
-    mode: text
-    optimistic: true
-    restore_value: true
-    max_length: 255
-    on_value:
-      - script.execute: idle_sleep
-      - script.execute: fetch_events
-
-  # Comma separated event names to hide from the display, matched
-  # case-insensitively against the full event title, e.g.
-  # "Out of office, Lunch". (The calendar event type is not exposed in
-  # the HA response, so automatic OOO filtering is not possible.)
-  - platform: template
-    id: ignore_events
-    name: Ignored events
-    entity_category: config
-    mode: text
-    optimistic: true
-    restore_value: true
-    max_length: 255
-    on_value:
-      - script.execute: idle_sleep
-      - script.execute: fetch_events
-
-number:
-  # Minutes asleep between refreshes
-  - platform: template
-    id: refresh_interval
-    name: Refresh interval
-    entity_category: config
-    unit_of_measurement: min
-    device_class: duration
-    mode: box
-    min_value: 5
-    max_value: 720
-    step: 5
-    initial_value: 30
-    optimistic: true
-    restore_value: true
-
-  # Seconds awake after boot / the last button press
-  - platform: template
-    id: awake_time
-    name: Awake time
-    entity_category: config
-    unit_of_measurement: s
-    device_class: duration
-    mode: box
-    min_value: 10
-    max_value: 300
-    step: 5
-    initial_value: 30
-    optimistic: true
-    restore_value: true
-
-datetime:
-  # Refresh wakes scheduled inside this window are deferred to its end -
-  # e.g. 22:00 to 06:30 stops the display refreshing overnight. Button
-  # presses still wake the device. Start == end disables the window.
-  - platform: template
-    id: downtime_start
-    type: time
-    name: Downtime start
-    entity_category: config
-    optimistic: true
-    restore_value: true
-    initial_value: "00:00:00"
-
-  - platform: template
-    id: downtime_end
-    type: time
-    name: Downtime end
-    entity_category: config
-    optimistic: true
-    restore_value: true
-    initial_value: "00:00:00"
-
-switch:
-  # Keeps the device awake (e.g. for OTA updates). On the device itself so
-  # no HA helper is needed.
-  - platform: template
-    id: prevent_sleep
-    name: Prevent sleep
-    entity_category: config
-    icon: mdi:sleep-off
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    on_turn_off:
-      # Resume the countdown once sleeping is allowed again
-      - script.execute: idle_sleep
-
-  - platform: template
-    id: clock_12h
-    name: 12-hour time
-    entity_category: config
-    icon: mdi:hours-12
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_OFF
-    on_turn_on:
-      - script.execute: fetch_events
-    on_turn_off:
-      - script.execute: fetch_events
-
-select:
-  # How long event names are handled: cut with "~", or wrapped onto more
-  # lines at word boundaries (continuations align with the title text,
-  # not the time).
-  - platform: template
-    id: title_overflow
-    name: Long event names
-    entity_category: config
-    options:
-      - Truncate
-      - Word wrap
-    initial_option: Truncate
-    optimistic: true
-    restore_value: true
-    on_value:
-      - script.execute: fetch_events
-
-  - platform: template
-    id: battery_display_mode
-    name: Battery display
-    entity_category: config
-    options:
-      - Percentage
-      - Voltage
-      - Both
-    initial_option: Percentage
-    optimistic: true
-    restore_value: true
-    # Refetch instead of updating the display directly: the restore-on-boot
-    # on_value would otherwise start a refresh that makes the display busy
-    # and silently drops the first calendar render a few seconds later.
-    on_value:
-      - script.execute: fetch_events
-
-button:
-  - platform: template
-    id: confirm_setup
-    name: Confirm setup
-    entity_category: config
-    on_press:
-      - if:
-          condition:
-            lambda: "return !id(calendar_ids).state.empty();"
-          then:
-            - lambda: "id(setup_done) = true;"
-            - rtttl.play: "ok:d=16,o=7,b=180:c,e,g"
-            - script.execute: fetch_events
-            - script.execute: idle_sleep
-          else:
-            - logger.log: "Set the Calendars text entity before confirming setup"
-            - rtttl.play: "err:d=8,o=5,b=120:c,c"
+# ---- Device hooks called by the common package ----
 
 script:
+  # Press feedback on the buzzer
+  - id: feedback_click
+    then:
+      - rtttl.play: "click:d=32,o=7,b=180:c"
+
+  - id: feedback_home
+    then:
+      - rtttl.play: "home:d=16,o=7,b=180:c,e"
+
+  - id: feedback_ok
+    then:
+      - rtttl.play: "ok:d=16,o=7,b=180:c,e,g"
+
+  - id: feedback_error
+    then:
+      - rtttl.play: "err:d=8,o=5,b=120:c,c"
+
   # One battery reading per wake: power the divider, sample, power off.
   - id: read_battery
     mode: queued
@@ -356,242 +94,11 @@ script:
       - component.update: battery_voltage
       - output.turn_off: battery_meas_enable
 
-  # Ask HA for the events covering the currently selected range, then
-  # redraw. mode: restart so rapid button presses just supersede the
-  # previous request.
-  - id: fetch_events
-    mode: restart
-    then:
-      - logger.log: "fetch: started, waiting for API"
-      - wait_until:
-          condition:
-            api.connected:
-          timeout: 60s
-      - wait_until:
-          condition:
-            lambda: "return id(ha_time).now().is_valid();"
-          timeout: 15s
-      - lambda: |-
-          ESP_LOGI("calendar", "fetch: api=%s time=%s calendars='%s' offset=%d days=%d",
-                   YESNO(api::global_api_server->is_connected()), YESNO(id(ha_time).now().is_valid()),
-                   id(calendar_ids).state.c_str(), id(day_offset), id(view_days));
-      - if:
-          condition:
-            not:
-              api.connected:
-          then:
-            # No HA connection - show what we have with an error note.
-            - logger.log: "fetch: no API connection - drawing error screen"
-            - lambda: "id(data_state) = 2;"
-            - component.update: epaper
-            - script.execute: idle_sleep
-          else:
-            - if:
-                condition:
-                  lambda: "return id(calendar_ids).state.empty();"
-                then:
-                  # Not configured yet - the display shows the setup screen.
-                  - logger.log: "fetch: calendars not set - drawing setup screen"
-                  - component.update: epaper
-                  - script.execute: idle_sleep
-                else:
-                  - logger.log: "fetch: calling calendar.get_events"
-                  - lambda: "id(fetch_pending) = true;"
-                  - homeassistant.action:
-                      action: calendar.get_events
-                      data:
-                        entity_id: !lambda "return id(calendar_ids).state;"
-                        start_date_time: !lambda |-
-                          auto day = ESPTime::from_epoch_local(
-                              id(ha_time).now().timestamp + (time_t) id(day_offset) * 86400);
-                          return day.strftime("%Y-%m-%d 00:00:00");
-                        end_date_time: !lambda |-
-                          auto day = ESPTime::from_epoch_local(
-                              id(ha_time).now().timestamp +
-                              (time_t) (id(day_offset) + id(view_days)) * 86400);
-                          return day.strftime("%Y-%m-%d 00:00:00");
-                      capture_response: true
-                      # Rendered by Home Assistant: merge every calendar's events
-                      # into one list sorted by start time, keeping only what the
-                      # display needs. Keeps the payload sent to the device small.
-                      # Timed events are converted to Home Assistant's local
-                      # timezone here, so events pinned to another timezone
-                      # show at the right local time (and on the right day).
-                      # All-day events are 10-character date strings and pass
-                      # through unchanged - the device keys off that length.
-                      # Some integrations report all-day events as timed
-                      # midnight-to-midnight spans; those are normalised to
-                      # the date-only all-day form here.
-                      response_template: |-
-                        {% set ns = namespace(ev=[]) %}
-                        {% for cal, val in response.items() %}
-                          {% for e in val["events"] %}
-                            {% if (e.start | length) == 10 %}
-                              {% set s = e.start %}
-                              {% set en = e.end %}
-                            {% else %}
-                              {% set sd = e.start | as_datetime | as_local %}
-                              {% set ed = e.end | as_datetime | as_local %}
-                              {% if sd.hour == 0 and sd.minute == 0 and sd.second == 0
-                                    and ed.hour == 0 and ed.minute == 0 and ed.second == 0 %}
-                                {% set s = sd.strftime("%Y-%m-%d") %}
-                                {% set en = ed.strftime("%Y-%m-%d") %}
-                              {% else %}
-                                {% set s = sd | string %}
-                                {% set en = ed | string %}
-                              {% endif %}
-                            {% endif %}
-                            {% set ns.ev = ns.ev + [{"s": s, "e": en, "t": e.summary}] %}
-                          {% endfor %}
-                        {% endfor %}
-                        {{ ns.ev | sort(attribute="s") }}
-                      on_success:
-                        - lambda: |-
-                            // Titles from the "Ignored events" list are dropped
-                            // (case-insensitive, entries trimmed of spaces)
-                            std::vector<std::string> ignore;
-                            const std::string &raw = id(ignore_events).state;
-                            size_t pos = 0;
-                            while (pos <= raw.size()) {
-                              size_t comma = raw.find(',', pos);
-                              if (comma == std::string::npos)
-                                comma = raw.size();
-                              size_t b = pos, e = comma;
-                              while (b < e && raw[b] == ' ')
-                                b++;
-                              while (e > b && raw[e - 1] == ' ')
-                                e--;
-                              if (e > b)
-                                ignore.push_back(str_lower_case(raw.substr(b, e - b)));
-                              pos = comma + 1;
-                            }
-                            id(cal_starts).clear();
-                            id(cal_ends).clear();
-                            id(cal_titles).clear();
-                            for (JsonObjectConst ev : response["response"].as<JsonArrayConst>()) {
-                              std::string title = ev["t"].as<std::string>();
-                              const std::string lower = str_lower_case(title);
-                              if (std::find(ignore.begin(), ignore.end(), lower) != ignore.end())
-                                continue;
-                              id(cal_starts).push_back(ev["s"].as<std::string>());
-                              id(cal_ends).push_back(ev["e"].as<std::string>());
-                              id(cal_titles).push_back(std::move(title));
-                            }
-                            id(data_state) = 1;
-                            id(fetch_pending) = false;
-                            id(fetch_retry) = 0;
-                            ESP_LOGI("calendar", "fetch: got %u events - updating display", (unsigned) id(cal_starts).size());
-                        - component.update: epaper
-                        # Sleep is timed from the last completed render, not from boot
-                        - script.execute: idle_sleep
-                      on_error:
-                        - lambda: |-
-                            ESP_LOGW("calendar", "calendar.get_events failed: %s", error.c_str());
-                            id(data_state) = 2;
-                            id(fetch_pending) = false;
-                            id(fetch_retry) = 0;
-                        - component.update: epaper
-                        - script.execute: idle_sleep
-                  # The action completes when the request is sent, not when
-                  # the response arrives. Wait for it here; if nothing came
-                  # back (request sent before HA subscribed), retry.
-                  - wait_until:
-                      condition:
-                        lambda: "return !id(fetch_pending);"
-                      timeout: 5s
-                  - if:
-                      condition:
-                        lambda: "return id(fetch_pending) && id(fetch_retry) < 2;"
-                      then:
-                        - lambda: "id(fetch_retry) += 1;"
-                        - logger.log: "fetch: no response within 5s - retrying"
-                        # The delay breaks the synchronous restart chain: executing
-                        # this script from inside its own wait_until continuation
-                        # re-enters WaitUntilAction::process_queue_ mid-iteration
-                        # and corrupts its queue (StoreProhibited crash on dev).
-                        - delay: 250ms
-                        - script.execute: fetch_events
-
-  # Inactivity timer: sleeps "Awake time" seconds after boot / the last
-  # button press. Never sleeps before "Confirm setup" has been pressed, or
-  # while the "Prevent sleep" switch is on.
-  - id: idle_sleep
-    mode: restart
-    then:
-      - delay: !lambda |-
-          float secs = id(awake_time).state;
-          if (isnan(secs) || secs < 10)
-            secs = 30;
-          return (uint32_t) (secs * 1000);
-      - if:
-          condition:
-            or:
-              - switch.is_on: prevent_sleep
-              - lambda: "return !id(setup_done);"
-          then:
-            - logger.log: "Deep sleep blocked (setup not confirmed or prevent-sleep on)"
-            - script.execute: idle_sleep
-          else:
-            - if:
-                condition:
-                  # Still waiting for wifi/API/time inside the fetch script -
-                  # bounded by that script's own wait timeouts (~75s), so this
-                  # cannot keep the device awake indefinitely.
-                  script.is_running: fetch_events
-                then:
-                  - logger.log: "Deep sleep delayed - fetch in progress"
-                  - script.execute: idle_sleep
-                else:
-                  - if:
-                      condition:
-                        lambda: "return id(fetch_pending);"
-                      then:
-                        # A response is still outstanding: grant one extra cycle,
-                        # but clear the flag so a lost response cannot keep the
-                        # device awake forever.
-                        - logger.log: "Deep sleep delayed - waiting for calendar response"
-                        - lambda: "id(fetch_pending) = false;"
-                        - script.execute: idle_sleep
-                      else:
-                        - logger.log: "Idle - entering deep sleep"
-                        - deep_sleep.enter:
-                            id: sleeper
-                            sleep_duration: !lambda |-
-                              float mins = id(refresh_interval).state;
-                              if (isnan(mins) || mins < 1)
-                                mins = 30;
-                              uint32_t sleep_ms = (uint32_t) (mins * 60000);
-                              // A refresh wake that would land inside the downtime
-                              // window sleeps through to the window's end instead.
-                              const auto now = id(ha_time).now();
-                              const int start_s = id(downtime_start).hour * 3600 +
-                                                  id(downtime_start).minute * 60 + id(downtime_start).second;
-                              const int end_s = id(downtime_end).hour * 3600 +
-                                                id(downtime_end).minute * 60 + id(downtime_end).second;
-                              if (now.is_valid() && start_s != end_s) {
-                                const int now_s = now.hour * 3600 + now.minute * 60 + now.second;
-                                const int wake_s = (now_s + (int) (sleep_ms / 1000)) % 86400;
-                                const bool in_downtime = start_s < end_s
-                                                             ? (wake_s >= start_s && wake_s < end_s)
-                                                             : (wake_s >= start_s || wake_s < end_s);
-                                if (in_downtime) {
-                                  int until_end = end_s - now_s;
-                                  if (until_end <= 0)
-                                    until_end += 86400;
-                                  ESP_LOGI("calendar", "next refresh falls in downtime - sleeping %ds until it ends",
-                                           until_end);
-                                  sleep_ms = (uint32_t) until_end * 1000;
-                                }
-                              }
-                              return sleep_ms;
+  # Nothing to latch before sleeping
+  - id: before_deep_sleep
+    then: []
 
 binary_sensor:
-  # On while the device is awake/connected, off while it deep-sleeps.
-  # Because the device reports deep-sleep support, HA keeps the last
-  # state instead of marking it unavailable between wakes.
-  - platform: status
-    name: Awake
-
   # Left button: page back
   - platform: gpio
     id: btn_left
@@ -601,10 +108,7 @@ binary_sensor:
       inverted: true
       allow_other_uses: true
     on_press:
-      - script.execute: idle_sleep
-      - rtttl.play: "click:d=32,o=7,b=180:c"
-      - lambda: "id(day_offset) -= id(view_days);"
-      - script.execute: fetch_events
+      - script.execute: action_page_back
 
   # Right button: page forward
   - platform: gpio
@@ -615,13 +119,9 @@ binary_sensor:
       inverted: true
       allow_other_uses: true
     on_press:
-      - script.execute: idle_sleep
-      - rtttl.play: "click:d=32,o=7,b=180:c"
-      - lambda: "id(day_offset) += id(view_days);"
-      - script.execute: fetch_events
+      - script.execute: action_page_forward
 
-  # Green button: short press cycles day / 3-day / week,
-  # 1s hold jumps back to today.
+  # Green button: short press cycles the view, 1s hold jumps back to today.
   - platform: gpio
     id: btn_green
     pin:
@@ -635,19 +135,11 @@ binary_sensor:
           - ON for at most 0.8s
           - OFF for at least 0.1s
         then:
-          - script.execute: idle_sleep
-          - rtttl.play: "click:d=32,o=7,b=180:c"
-          - lambda: |-
-              // Week view disabled for now - the columns are too narrow
-              id(view_days) = id(view_days) == 1 ? 3 : 1;
-          - script.execute: fetch_events
+          - script.execute: action_cycle_view
       - timing:
           - ON for at least 1s
         then:
-          - script.execute: idle_sleep
-          - rtttl.play: "home:d=16,o=7,b=180:c,e"
-          - lambda: "id(day_offset) = 0;"
-          - script.execute: fetch_events
+          - script.execute: action_today
 
 output:
   # Enables the battery voltage divider (per Seeed wiki)
@@ -675,29 +167,9 @@ sensor:
     filters:
       - multiply: 2.0
 
-  # Crude linear percentage between 3.5V (empty) and 4.14V (full)
-  - platform: copy
-    source_id: battery_voltage
-    id: battery_pct
-    name: Battery
-    device_class: battery
-    unit_of_measurement: "%"
-    accuracy_decimals: 0
-    filters:
-      - calibrate_linear:
-          - 3.50 -> 0.0
-          - 4.14 -> 100.0
-      - clamp:
-          min_value: 0
-          max_value: 100
-
 spi:
   clk_pin: GPIO7
   mosi_pin: GPIO9
-
-packages:
-  # Fonts are shared with the host screenshot config
-  fonts: !include ../common/fonts.yaml
 
 display:
   - platform: epaper_spi

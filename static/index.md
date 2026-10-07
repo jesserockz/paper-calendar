@@ -13,7 +13,7 @@ See the [README](https://github.com/jesserockz/paper-calendar) for the full feat
 
 # Installation
 
-Pick your device below to install the pre-built firmware via USB from the browser. The installer also lets you provision Wi-Fi credentials over the same USB connection.
+Pick your device below to install the pre-built firmware via USB from the browser. The installer also lets you provision Wi-Fi credentials over the same USB connection. A device without Wi-Fi credentials can also be provisioned over Bluetooth (Improv, e.g. from Home Assistant's discovered devices) or through its fallback hotspot - its screen shows a QR code to join it.
 
 ## Seeed Studio reTerminal E1001
 
