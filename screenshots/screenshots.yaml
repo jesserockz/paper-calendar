@@ -1,0 +1,157 @@
+# Renders the calendar display off-device and saves the README/site
+# screenshots - no hardware or Home Assistant needed:
+#
+#   esphome run screenshots/screenshots.yaml
+#
+# Runs on the host platform with the snapshot display: the same render
+# lambda and fonts as the real device (common/) draw a set of demo
+# events, one BMP per view is written to
+# .esphome/snapshots/paper-calendar-screenshots/ (override with the
+# ESPHOME_SNAPSHOT_DIR environment variable), and the binary exits.
+# Convert the BMPs to PNG and put them in static/screenshots/.
+#
+# This config is a development tool: it is not built by CI (only
+# *.factory.yaml files are) and is not meant to be installed anywhere.
+
+esphome:
+  name: paper-calendar-screenshots
+  min_version: 2026.9.0
+  on_boot:
+    priority: -100
+    then:
+      # Seed the same state the real device would have after a fetch:
+      # demo events for today and the two following days.
+      - lambda: |-
+          id(calendar_ids).publish_state("calendar.family, calendar.work");
+          id(battery_voltage).publish_state(4.02f);
+          id(battery_pct).publish_state(81.0f);
+          const time_t now_ts = id(ha_time).now().timestamp;
+          // "YYYY-MM-DD" for today + offset days
+          auto day_str = [&](int offset) -> std::string {
+            return ESPTime::from_epoch_local(now_ts + (time_t) offset * 86400).strftime("%Y-%m-%d");
+          };
+          // Timed events carry the "YYYY-MM-DD HH:MM:SS" shape the fetch
+          // script stores; all-day events are 10-character dates.
+          auto timed = [&](int offset, const char *hm) -> std::string { return day_str(offset) + " " + hm; };
+          auto add = [&](const std::string &start, const std::string &end, const char *title) {
+            id(cal_starts).push_back(start);
+            id(cal_ends).push_back(end);
+            id(cal_titles).push_back(title);
+          };
+          // Kept sorted by start, as the fetch script would deliver them
+          add(day_str(0), day_str(1), "School holidays");
+          add(timed(0, "08:30:00"), timed(0, "09:00:00"), "School drop-off");
+          add(timed(0, "09:30:00"), timed(0, "09:45:00"), "Team standup");
+          add(timed(0, "12:00:00"), timed(0, "13:00:00"), "Lunch date");
+          add(timed(0, "15:00:00"), timed(0, "16:00:00"), "Project review");
+          add(timed(0, "18:30:00"), timed(0, "19:30:00"), "Football practice");
+          add(timed(1, "10:00:00"), timed(1, "10:45:00"), "Dentist");
+          add(timed(1, "17:00:00"), timed(1, "17:30:00"), "Grocery pickup");
+          add(day_str(2), day_str(3), "Conference day");
+          add(timed(2, "21:15:00"), timed(2, "22:40:00"), "Train home");
+          id(setup_done) = true;
+          id(data_state) = 1;
+      # Day view
+      - lambda: "id(view_days) = 1;"
+      - component.update: epaper
+      - snapshot.take:
+          id: epaper
+          filename: day-view.bmp
+      # 3-day view
+      - lambda: "id(view_days) = 3;"
+      - component.update: epaper
+      - snapshot.take:
+          id: epaper
+          filename: three-day-view.bmp
+      # First-boot setup screen (shown while Calendars is empty)
+      - lambda: "id(calendar_ids).publish_state(\"\");"
+      - component.update: epaper
+      - snapshot.take:
+          id: epaper
+          filename: setup-screen.bmp
+      - lambda: "::exit(0);"
+
+host:
+
+logger:
+
+time:
+  - platform: host
+    id: ha_time
+
+# ---- Stubs for everything the render lambda reads ----
+# Same ids as the device config, demo values instead of device state.
+
+globals:
+  - id: day_offset
+    type: int
+    initial_value: "0"
+  - id: view_days
+    type: int
+    initial_value: "1"
+  - id: setup_done
+    type: bool
+    initial_value: "false"
+  - id: data_state
+    type: int
+    initial_value: "0"
+  - id: cal_starts
+    type: std::vector<std::string>
+  - id: cal_ends
+    type: std::vector<std::string>
+  - id: cal_titles
+    type: std::vector<std::string>
+
+text:
+  - platform: template
+    id: calendar_ids
+    name: Calendars
+    mode: text
+    optimistic: true
+
+switch:
+  - platform: template
+    id: clock_12h
+    name: 12-hour time
+    optimistic: true
+
+select:
+  - platform: template
+    id: title_overflow
+    name: Long event names
+    options:
+      - Truncate
+      - Word wrap
+    initial_option: Truncate
+    optimistic: true
+
+  - platform: template
+    id: battery_display_mode
+    name: Battery display
+    options:
+      - Percentage
+      - Voltage
+      - Both
+    initial_option: Percentage
+    optimistic: true
+
+sensor:
+  - platform: template
+    id: battery_voltage
+    name: Battery voltage
+    update_interval: never
+  - platform: template
+    id: battery_pct
+    name: Battery
+    update_interval: never
+
+packages:
+  fonts: !include ../common/fonts.yaml
+
+display:
+  - platform: snapshot
+    id: epaper
+    # reTerminal E1001 panel resolution
+    dimensions: 800x480
+    update_interval: never
+    lambda: !include ../common/calendar-render.yaml

@@ -1,0 +1,39 @@
+# Fonts shared between the device configs and the host screenshot config
+# (screenshots/screenshots.yaml). Same ids everywhere so the render lambda
+# (common/calendar-render.yaml) works against either display.
+font:
+  - file: gfonts://Roboto+Mono@700
+    id: font_header
+    size: 30
+    glyphsets: [GF_Latin_Core]
+    # Roboto lacks standalone combining accents (U+03xx); the precomposed
+    # accented letters are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
+  - file: gfonts://Roboto+Mono@700
+    id: font_day
+    size: 22
+    glyphsets: [GF_Latin_Core]
+    # Roboto lacks standalone combining accents (U+03xx); the precomposed
+    # accented letters are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
+  - file: gfonts://Roboto+Mono@400
+    id: font_event_big
+    size: 22
+    glyphsets: [GF_Latin_Core]
+    # Roboto lacks standalone combining accents (U+03xx); the precomposed
+    # accented letters are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
+  - file: gfonts://Roboto+Mono@400
+    id: font_event
+    size: 18
+    glyphsets: [GF_Latin_Core]
+    # Roboto lacks standalone combining accents (U+03xx); the precomposed
+    # accented letters are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
+  - file: gfonts://Roboto+Mono@400
+    id: font_small
+    size: 14
+    glyphsets: [GF_Latin_Core]
+    # Roboto lacks standalone combining accents (U+03xx); the precomposed
+    # accented letters are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
