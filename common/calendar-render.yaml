@@ -24,6 +24,29 @@
            width, height, id(data_state), (unsigned) id(cal_starts).size(),
            YESNO(!id(calendar_ids).state.empty()));
 
+  // ---- Wi-Fi setup screen (no credentials saved yet) ----
+  if (id(wifi_setup)) {
+    it.print(width / 2, 40, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
+    it.print(width / 2, 95, id(font_event_big), black, TextAlign::CENTER,
+             "Connect this device to Wi-Fi, using any of:");
+    it.print(width / 2, 135, id(font_event_big), black, TextAlign::CENTER,
+             "Bluetooth: set it up from Home Assistant");
+    it.print(width / 2, 175, id(font_event_big), black, TextAlign::CENTER,
+             "USB: open web.esphome.io in Chrome or Edge");
+    it.print(width / 2, 215, id(font_event_big), black, TextAlign::CENTER,
+             "Hotspot: scan below, then open 192.168.4.1");
+    // Join-the-hotspot QR code, centred; 5px modules stay readable for a
+    // phone camera on e-paper. The page background is the quiet zone.
+    const int qr_scale = 5;
+    const int qr_px = id(wifi_qr).get_size() * qr_scale;
+    it.qr_code((width - qr_px) / 2, 245, id(wifi_qr), black, qr_scale);
+    it.printf(width / 2, 245 + qr_px + 8, id(font_event), black, TextAlign::TOP_CENTER, "Wi-Fi: %s",
+              id(ap_ssid).c_str());
+    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+             "The device stays awake until Wi-Fi is set up");
+    return;
+  }
+
   // ---- First-boot setup screen ----
   if (id(calendar_ids).state.empty()) {
     it.print(width / 2, 110, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");

@@ -1,42 +1,19 @@
-# Factory image for the prebuilt / web-installed firmware. All device
-# functionality lives in the core config; this wrapper only adds what a
-# shared installer image needs. Once the device is adopted into an
-# ESPHome dashboard (via dashboard_import below) the user builds the
-# core config and these extras drop away.
+# Factory image for the prebuilt / web-installed firmware: the core
+# config plus the shared installer extras (common/factory.yaml).
 
 packages:
   # Include all of the core configuration
   core: !include reterminal-e1001.yaml
+  # Improv provisioning, dashboard import and GitHub-release OTA updates
+  factory: !include
+    file: ../common/factory.yaml
+    vars:
+      device: reterminal-e1001
 
 esphome:
   # This will allow for project identification,
-  # configuration and updates.
+  # configuration and updates. Kept here rather than in the shared
+  # package: the build workflow replaces `version: dev` in this file.
   project:
     name: jesserockz.paper-calendar
     version: dev  # This will be replaced by the github workflows with the `release` version
-
-# The public location of the yaml file that is adopted into an ESPHome
-# dashboard: the core yaml, without the installer extras from this file.
-dashboard_import:
-  package_import_url: github://jesserockz/paper-calendar/reterminal-e1001/reterminal-e1001.yaml@main
-
-# Wi-Fi provisioning over the USB port (ESP Web Tools / web.esphome.io).
-improv_serial:
-
-# esp32_improv (BLE provisioning from a phone) is deliberately left out:
-# the BLE stack would start on every deep-sleep wake, costing boot time
-# and battery, and Improv Serial plus the fallback hotspot already cover
-# provisioning on this USB-C device.
-
-# Used to pull OTA updates from GitHub releases
-http_request:
-
-ota:
-  - platform: http_request
-
-update:
-  - platform: http_request
-    name: Firmware
-    # Per-device manifest: the build workflow publishes one manifest per
-    # device folder, named after its build group.
-    source: https://jesserockz.github.io/paper-calendar/firmware/reterminal-e1001.manifest.json

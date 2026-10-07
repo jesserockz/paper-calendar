@@ -63,8 +63,17 @@ esphome:
       - snapshot.take:
           id: epaper
           filename: three-day-view.bmp
+      # Wi-Fi setup screen (shown while no Wi-Fi credentials are saved)
+      - lambda: |-
+          id(calendar_ids).publish_state("");
+          id(wifi_setup) = true;
+          id(wifi_qr).set_value("WIFI:T:nopass;S:" + id(ap_ssid) + ";;");
+      - component.update: epaper
+      - snapshot.take:
+          id: epaper
+          filename: wifi-setup.bmp
+      - lambda: "id(wifi_setup) = false;"
       # First-boot setup screen (shown while Calendars is empty)
-      - lambda: "id(calendar_ids).publish_state(\"\");"
       - component.update: epaper
       - snapshot.take:
           id: epaper
@@ -92,6 +101,12 @@ globals:
   - id: setup_done
     type: bool
     initial_value: "false"
+  - id: wifi_setup
+    type: bool
+    initial_value: "false"
+  - id: ap_ssid
+    type: std::string
+    initial_value: '"paper-calendar-1a2b3c"'
   - id: data_state
     type: int
     initial_value: "0"
@@ -147,6 +162,10 @@ sensor:
 
 packages:
   fonts: !include ../common/fonts.yaml
+
+qr_code:
+  - id: wifi_qr
+    value: "WIFI:T:nopass;S:paper-calendar;;"
 
 display:
   - platform: snapshot
