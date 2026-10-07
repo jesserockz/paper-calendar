@@ -54,6 +54,13 @@
 # The device's deep_sleep block only adds wake sources (id sleeper is set
 # here); its buttons call the action_* scripts below, and its on_wake
 # triggers the wake_* ones.
+# Optional substitution:
+#   - view_button: the view / back-to-today button's name in the footer
+#     hint (default "middle").
+
+substitutions:
+  # A device's own substitutions override this default
+  view_button: middle
 
 esphome:
   # Every device runs the same firmware name

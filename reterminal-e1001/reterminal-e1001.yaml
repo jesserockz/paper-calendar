@@ -22,6 +22,10 @@
 # For a personal build with fixed credentials, include this file as a
 # package and add them on top - see the README for an example overlay.
 
+substitutions:
+  # The view button's name in the footer hint
+  view_button: green
+
 packages:
   # The device-agnostic calendar logic, fonts included
   paper_calendar: !include ../common/paper-calendar.yaml
