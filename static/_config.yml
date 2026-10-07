@@ -1,4 +1,3 @@
-# CHANGEME: Set these variable to your liking
-title: ESPHome Project Template
-description: Powered by ESPHome and ESP Web Tools
+title: Paper Calendar
+description: A battery powered Home Assistant calendar on the reTerminal E1001 e-paper display - powered by ESPHome and ESP Web Tools
 theme: jekyll-theme-slate

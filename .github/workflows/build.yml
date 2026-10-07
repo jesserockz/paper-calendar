@@ -26,9 +26,13 @@ jobs:
     uses: esphome/workflows/.github/workflows/build-to-draft-release.yml@cc3e76de337dc59bc1cba8da58d963cd23b873f1  # 2026.9.0
     with:
       #### Modify below here to match your project ####
-      # Every *.factory.yaml in the repo is discovered automatically; the
-      # builds are combined into a single manifest published under this name.
-      # Remove combined-name to publish one manifest per file instead.
-      combined-name: project-template
-      esphome-version: 2026.8.1
+      # One group per supported device: every device keeps the same firmware
+      # name (paper-calendar), so the group name is what gives each device
+      # its own manifest on the release and the installer site
+      # (firmware/<group>.manifest.json). Add a line per new device folder.
+      groups: >-
+        [
+          {"name": "reterminal-e1001", "files": ["reterminal-e1001/reterminal-e1001.factory.yaml"]}
+        ]
+      esphome-version: 2026.9.1
       #### Modify above here to match your project ####

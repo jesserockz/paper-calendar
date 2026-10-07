@@ -1,0 +1,234 @@
+# The calendar render lambda, shared between the real e-paper display and
+# the host snapshot display that generates the README screenshots
+# (screenshots/screenshots.yaml). Included with `lambda: !include`.
+|-
+  // The e-paper clears to white on its own; the explicit fill gives the
+  // host snapshot display the same white background.
+  it.fill(Color::WHITE);
+  auto now = id(ha_time).now();
+  const int width = it.get_width();
+  const int height = it.get_height();
+  const auto black = Color::BLACK;
+  const bool use_12h = id(clock_12h).state;
+  const bool wrap_titles = id(title_overflow).current_option().str() == "Word wrap";
+  auto fmt_time = [&](int hour, int minute) -> std::string {
+    if (use_12h) {
+      int h = hour % 12;
+      if (h == 0)
+        h = 12;
+      return str_sprintf("%d:%02d%s", h, minute, hour < 12 ? "am" : "pm");
+    }
+    return str_sprintf("%02d:%02d", hour, minute);
+  };
+  ESP_LOGI("calendar", "render: %dx%d state=%d events=%u configured=%s",
+           width, height, id(data_state), (unsigned) id(cal_starts).size(),
+           YESNO(!id(calendar_ids).state.empty()));
+
+  // ---- First-boot setup screen ----
+  if (id(calendar_ids).state.empty()) {
+    it.print(width / 2, 110, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
+    it.print(width / 2, 190, id(font_event_big), black, TextAlign::CENTER,
+             "1. In Home Assistant, allow this device to perform actions");
+    it.print(width / 2, 235, id(font_event_big), black, TextAlign::CENTER,
+             "2. Fill in the Calendars text entity (e.g. calendar.family)");
+    it.print(width / 2, 280, id(font_event_big), black, TextAlign::CENTER,
+             "3. Pick a battery display style (optional)");
+    it.print(width / 2, 325, id(font_event_big), black, TextAlign::CENTER,
+             "4. Press the Confirm setup button");
+    it.print(width / 2, 400, id(font_small), black, TextAlign::CENTER,
+             "The device stays awake until setup is confirmed");
+    return;
+  }
+
+  if (id(data_state) == 0 || !now.is_valid()) {
+    it.print(width / 2, height / 2, id(font_header), black, TextAlign::CENTER, "Loading calendar...");
+    return;
+  }
+
+  const int days = id(view_days);
+  const time_t base_ts = now.timestamp + (time_t) id(day_offset) * 86400;
+
+  // ---- Header ----
+  auto start_day = ESPTime::from_epoch_local(base_ts);
+  auto end_day = ESPTime::from_epoch_local(base_ts + (time_t) (days - 1) * 86400);
+  std::string title;
+  if (days == 1) {
+    title = (id(day_offset) == 0 ? "Today - " : "") + start_day.strftime("%A %d %B");
+  } else {
+    title = start_day.strftime("%d %b") + " - " + end_day.strftime("%d %b %Y");
+  }
+  it.print(16, 8, id(font_header), black, title.c_str());
+
+  const char *view_label = days == 1 ? "Day" : (days == 3 ? "3-Day" : "Week");
+  std::string batt;
+  const std::string bmode = id(battery_display_mode).current_option().str();
+  if (bmode == "Voltage") {
+    batt = str_sprintf("%.2f V", id(battery_voltage).state);
+  } else if (bmode == "Both") {
+    batt = str_sprintf("%.0f%% (%.2f V)", id(battery_pct).state, id(battery_voltage).state);
+  } else {
+    batt = str_sprintf("%.0f%%", id(battery_pct).state);
+  }
+  it.printf(width - 16, 8, id(font_day), black, TextAlign::TOP_RIGHT, "%s   %s", view_label, batt.c_str());
+  it.printf(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT, "updated %s",
+            fmt_time(now.hour, now.minute).c_str());
+  it.line(0, 56, width, 56, black);
+
+  // ---- Day columns ----
+  const int top = 64;
+  const int col_w = width / days;
+  auto *ev_font = days == 1 ? id(font_event_big) : id(font_event);
+  const int row_h = days == 1 ? 30 : 24;
+  const int max_y = height - row_h - 24;
+  // Real pixel width of a string in the event font - line budgets are
+  // measured, not estimated from character counts
+  auto text_w = [&](const std::string &t) -> int {
+    int tx, ty, tw, th;
+    it.get_text_bounds(0, 0, t.c_str(), ev_font, TextAlign::TOP_LEFT, &tx, &ty, &tw, &th);
+    return tw;
+  };
+  // Greedy word-wrap into at most max_lines lines that each fit within
+  // budget pixels; the last line gets "~" if anything was cut off.
+  // max_lines == 1 gives plain measured truncation.
+  auto wrap_text = [&](const std::string &text, int budget, int max_lines) -> std::vector<std::string> {
+    std::vector<std::string> out;
+    size_t pos = 0;
+    while (pos < text.size() && (int) out.size() < max_lines) {
+      while (pos < text.size() && text[pos] == ' ')
+        pos++;
+      if (pos >= text.size())
+        break;
+      std::string line;
+      while (pos < text.size()) {
+        size_t wstart = pos;
+        while (wstart < text.size() && text[wstart] == ' ')
+          wstart++;
+        if (wstart >= text.size()) {
+          pos = wstart;
+          break;
+        }
+        size_t wend = text.find(' ', wstart);
+        if (wend == std::string::npos)
+          wend = text.size();
+        const std::string word = text.substr(wstart, wend - wstart);
+        if (line.empty()) {
+          if (text_w(word) <= budget) {
+            line = word;
+            pos = wend;
+          } else {
+            // A single word wider than the column: take what fits,
+            // never splitting a UTF-8 sequence
+            size_t p = wstart;
+            while (p < wend) {
+              size_t clen = 1;
+              while (p + clen < wend && (text[p + clen] & 0xC0) == 0x80)
+                clen++;
+              if (!line.empty() && text_w(line + text.substr(p, clen)) > budget)
+                break;
+              line += text.substr(p, clen);
+              p += clen;
+            }
+            pos = p;
+            break;
+          }
+        } else if (text_w(line + " " + word) <= budget) {
+          line += " " + word;
+          pos = wend;
+        } else {
+          break;
+        }
+      }
+      if (pos < text.size() && (int) out.size() == max_lines - 1) {
+        while (!line.empty() && text_w(line + "~") > budget) {
+          size_t cut = line.size() - 1;
+          while (cut > 0 && (line[cut] & 0xC0) == 0x80)
+            cut--;
+          line.resize(cut);
+        }
+        line += "~";
+        pos = text.size();
+      }
+      out.push_back(std::move(line));
+    }
+    return out;
+  };
+
+  for (int d = 0; d < days; d++) {
+    const int x = d * col_w;
+    auto day = ESPTime::from_epoch_local(base_ts + (time_t) d * 86400);
+    std::string day_key = day.strftime("%Y-%m-%d");
+    int y = top;
+    if (days > 1) {
+      it.printf(x + col_w / 2, y, id(font_day), black, TextAlign::TOP_CENTER, "%s", day.strftime("%a %d").c_str());
+      y += 28;
+      it.line(x + 6, y, x + col_w - 6, y, black);
+      y += 6;
+      if (d > 0)
+        it.line(x, top, x, height - 24, black);
+    }
+    int shown = 0, hidden = 0;
+    for (size_t i = 0; i < id(cal_starts).size(); i++) {
+      const std::string &s = id(cal_starts)[i];
+      const std::string &e = id(cal_ends)[i];
+      const bool all_day = s.size() == 10;
+      // All-day events span [start, end) and can cover several days;
+      // timed events are matched on their start date.
+      const bool on_this_day = all_day ? (s <= day_key && day_key < e) : (s.compare(0, 10, day_key) == 0);
+      if (!on_this_day)
+        continue;
+      if (y > max_y) {
+        hidden++;
+        continue;
+      }
+      std::string prefix, body;
+      if (all_day) {
+        prefix = "[";
+        body = id(cal_titles)[i] + "]";
+      } else {
+        const int ev_hour = (s[11] - '0') * 10 + (s[12] - '0');
+        const int ev_min = (s[14] - '0') * 10 + (s[15] - '0');
+        prefix = fmt_time(ev_hour, ev_min) + " ";
+        body = id(cal_titles)[i];
+      }
+      const int avail = col_w - 16;  // 8px margin each side
+      const int prefix_w = text_w(prefix);
+      // Weekly view: the time gets its own line and the title starts on
+      // the next line with a small indent
+      const bool stack_time = !all_day && days == 7;
+      const int indent = stack_time ? 12 : prefix_w;
+      const int max_title_lines = wrap_titles ? (stack_time ? 2 : 3) : 1;
+      auto title_lines = wrap_text(body, avail - indent, max_title_lines);
+      if (stack_time) {
+        it.print(x + 8, y, ev_font, black, prefix.c_str());
+        y += row_h;
+      }
+      for (size_t li = 0; li < title_lines.size(); li++) {
+        if (y > max_y)
+          break;
+        if (!stack_time && li == 0) {
+          it.print(x + 8, y, ev_font, black, (prefix + title_lines[li]).c_str());
+        } else {
+          it.print(x + 8 + indent, y, ev_font, black, title_lines[li].c_str());
+        }
+        y += row_h;
+      }
+      shown++;
+    }
+    if (hidden > 0) {
+      it.printf(x + 8, y, id(font_small), black, "+%d more", hidden);
+    } else if (shown == 0) {
+      it.print(x + 8, y, id(font_small), black, days == 1 ? "No events" : "-");
+    }
+  }
+
+  // ---- Footer ----
+  if (!id(setup_done)) {
+    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+             "Setup preview - press the Confirm setup button in HA to enable sleep");
+  } else if (id(data_state) == 2) {
+    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+             "! Could not reach Home Assistant - showing last known events");
+  } else {
+    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+             "left: back    green: change view (hold: today)    right: forward");
+  }
