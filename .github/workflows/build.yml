@@ -32,7 +32,8 @@ jobs:
       # (firmware/<group>.manifest.json). Add a line per new device folder.
       groups: >-
         [
-          {"name": "reterminal-e1001", "files": ["reterminal-e1001/reterminal-e1001.factory.yaml"]}
+          {"name": "reterminal-e1001", "files": ["reterminal-e1001/reterminal-e1001.factory.yaml"]},
+          {"name": "m5paper", "files": ["m5paper/m5paper.factory.yaml"]}
         ]
       esphome-version: 2026.9.1
       #### Modify above here to match your project ####

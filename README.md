@@ -11,6 +11,7 @@ The device fetches your Home Assistant calendar events with the `calendar.get_ev
 | Device                                                                                    | Chip     | Config                               |
 |-------------------------------------------------------------------------------------------|----------|--------------------------------------|
 | [Seeed Studio reTerminal E1001](https://www.seeedstudio.com/reTerminal-E1001-p-6534.html) | ESP32-S3 | [reterminal-e1001](reterminal-e1001) |
+| [M5Stack M5Paper](https://docs.m5stack.com/en/core/m5paper)                               | ESP32    | [m5paper](m5paper)                   |
 
 Each supported device has its own folder with its own prebuilt firmware, installable from the [web installer](https://jesserockz.github.io/paper-calendar/). All devices run the same firmware name (`paper-calendar`) and share the same rendering and features.
 
@@ -18,7 +19,7 @@ Each supported device has its own folder with its own prebuilt firmware, install
 
 - Day and 3-day views of any number of Home Assistant calendars, merged and sorted.
 - Deep sleep between refreshes with a configurable interval, awake time, and an overnight downtime window.
-- Buttons wake the device *and* perform their action: page through the days or switch the view. A short beep confirms the press registered, since e-paper takes a few seconds to redraw.
+- Buttons wake the device *and* perform their action: page through the days or switch the view. On the reTerminal, a short beep confirms the press registered, since e-paper takes a few seconds to redraw (the M5Paper has no buzzer).
 - All-day events, word-wrap or truncation for long titles, an ignore list for events you do not want shown, 12/24-hour clock, and a battery readout (percentage, voltage, or both) in the header.
 - Everything is configured through entities on the device itself - no Home Assistant helpers, template sensors, or YAML edits needed.
 
@@ -81,7 +82,18 @@ On the reTerminal E1001, the three top buttons are:
 | Green  | Short   | Cycle the view: day <-> 3-day.                                                      |
 | Green  | Hold 1s | Jump back to today (only while the device is awake; a wake always starts on today). |
 
-Any button also wakes the device from deep sleep, and the wake press performs its normal action (paging starts from today; the green hold-for-today only works while already awake).
+On the reTerminal, any button also wakes the device from deep sleep, and the wake press performs its normal action (paging starts from today; the green hold-for-today only works while already awake).
+
+On the M5Paper (landscape, rocker on top), the rocker and its push button are:
+
+| Button    | Press   | Action                                                                              |
+|-----------|---------|-------------------------------------------------------------------------------------|
+| Left      | Short   | Page one view back (1 or 3 days, depending on the view).                            |
+| Right     | Short   | Page one view forward.                                                              |
+| OK (push) | Short   | Cycle the view: day <-> 3-day.                                                      |
+| OK (push) | Hold 1s | Jump back to today (only while the device is awake; a wake always starts on today). |
+
+Only Right and OK wake the M5Paper from deep sleep (the original ESP32 can wake on at most one active-low pin per wake source, so Left cannot). The wake press performs its normal action. There is no buzzer, so there is no beep.
 
 ## Updates
 

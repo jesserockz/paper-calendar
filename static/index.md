@@ -19,6 +19,10 @@ Pick your device below to install the pre-built firmware via USB from the browse
 
 <esp-web-install-button manifest="firmware/reterminal-e1001.manifest.json"></esp-web-install-button>
 
+## M5Stack M5Paper
+
+<esp-web-install-button manifest="firmware/m5paper.manifest.json"></esp-web-install-button>
+
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
 # After installing
