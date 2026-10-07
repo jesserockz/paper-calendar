@@ -148,6 +148,7 @@ Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reter
 - the battery voltage sensor with `id: battery_voltage`, in volts at the battery (the common package derives the **Battery** percentage from it);
 - the wake sources under `deep_sleep:` (the common package sets its `id: sleeper`), with `on_wake` calling the `wake_page_back`, `wake_page_forward` or `wake_cycle_view` scripts;
 - the buttons, calling the `action_page_back`, `action_page_forward`, `action_cycle_view` and `action_today` scripts;
+- optionally, a `view_button` substitution naming the view / back-to-today button for the footer hint on the display (defaults to `middle`);
 - these hook scripts, which the common package calls but never defines:
 
 | Hook script         | Called                                                        | reTerminal E1001                        |

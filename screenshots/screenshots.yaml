@@ -13,6 +13,10 @@
 # This config is a development tool: it is not built by CI (only
 # *.factory.yaml files are) and is not meant to be installed anywhere.
 
+# The view button's name in the footer hint, as on the reTerminal
+substitutions:
+  view_button: green
+
 esphome:
   name: paper-calendar-screenshots
   min_version: 2026.9.0

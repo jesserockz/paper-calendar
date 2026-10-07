@@ -253,5 +253,5 @@
              "! Could not reach Home Assistant - showing last known events");
   } else {
     it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
-             "left: back    green: change view (hold: today)    right: forward");
+             "left: back    ${view_button}: change view (hold: today)    right: forward");
   }
