@@ -1,0 +1,19 @@
+# Factory image for the prebuilt / web-installed firmware: the core
+# config plus the shared installer extras (common/factory.yaml).
+
+packages:
+  # Include all of the core configuration
+  core: !include m5paper.yaml
+  # Improv provisioning, dashboard import and GitHub-release OTA updates
+  factory: !include
+    file: ../common/factory.yaml
+    vars:
+      device: m5paper
+
+esphome:
+  # This will allow for project identification,
+  # configuration and updates. Kept here rather than in the shared
+  # package: the build workflow replaces `version: dev` in this file.
+  project:
+    name: jesserockz.paper-calendar
+    version: dev  # This will be replaced by the github workflows with the `release` version

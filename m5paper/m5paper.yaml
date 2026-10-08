@@ -1,0 +1,206 @@
+# M5Stack M5Paper (original ESP32, SKU K049) - battery powered calendar
+# display
+#
+# Hardware only: the calendar itself (entities, fetch and sleep logic,
+# render lambda and fonts) is the shared package in ../common, and this
+# file plugs the M5Paper into its hooks.
+#
+# - Used in landscape with the rocker switch on the top edge: the left /
+#   right rocker positions page backward / forward through the days.
+# - OK (push the rocker in): short press cycles the view (day <-> 3-day),
+#   long press (1s) jumps back to today.
+# - Only the right and OK buttons wake it from deep sleep: the original
+#   ESP32 can wake on an active-low button through ext0 (one pin) and
+#   ext1 ALL_LOW (a single pin here), so the left button cannot. The wake
+#   press also performs its normal action (right pages from today, OK
+#   cycles the view). OK's long-press (back to today) only works while
+#   awake; a wake always starts on today anyway.
+# - There is no buzzer, so presses give no audible feedback.
+#
+# This file is generic: it is the config an ESPHome dashboard adopts (the
+# API encryption key is provisioned by Home Assistant on adoption, wifi
+# comes from the fallback hotspot or your dashboard secrets). The
+# prebuilt/web-installed image is built from m5paper.factory.yaml, which
+# layers the installer extras (Improv Serial and Bluetooth provisioning,
+# dashboard import, GitHub-release OTA updates) on top.
+# For a personal build with fixed credentials, include this file as a
+# package and add them on top - see the README for an example overlay.
+
+substitutions:
+  # The rocker push button, named in the display's footer hint
+  view_button: ok
+
+packages:
+  # The device-agnostic calendar logic, fonts included
+  paper_calendar: !include ../common/paper-calendar.yaml
+
+esphome:
+  # The before_deep_sleep GPIO hold and the ext0 wake cause check below
+  # use these ESP-IDF headers directly
+  includes:
+    - <driver/gpio.h>
+    - <esp_sleep.h>
+
+esp32:
+  variant: esp32
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+# The 960x540 framebuffer lives in the 8MB PSRAM
+psram:
+
+deep_sleep:
+  # The original ESP32 only supports ext1 ALL_LOW / ANY_HIGH and the
+  # buttons are active low, so just two buttons can wake it: one through
+  # ext0 and one through ext1 with a single pin. The left (page back)
+  # button cannot wake the device.
+  # ext0: right button (page forward)
+  wakeup_pin:
+    number: GPIO39
+    inverted: true
+    allow_other_uses: true
+  # ext1 with a single pin: OK button (cycle the view). ALL_LOW of one pin
+  # is the same as that pin being low.
+  esp32_ext1_wakeup:
+    mode: ALL_LOW
+    pins:
+      - pin:
+          number: GPIO38
+          allow_other_uses: true
+        on_wake:
+          - script.execute: wake_cycle_view
+  # ext0 has no per-pin on_wake, and the shared on_wake reports both ext0
+  # and ext1 as a GPIO wake, so check the raw cause for the right button.
+  on_wake:
+    - if:
+        condition:
+          lambda: "return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0;"
+        then:
+          - script.execute: wake_page_forward
+
+# ---- Device hooks called by the common package ----
+
+script:
+  # No buzzer: presses give no audible feedback
+  - id: feedback_click
+    then: []
+
+  - id: feedback_home
+    then: []
+
+  - id: feedback_ok
+    then: []
+
+  - id: feedback_error
+    then: []
+
+  # One battery reading per wake. The divider is always connected.
+  - id: read_battery
+    mode: queued
+    then:
+      - component.update: battery_voltage
+
+  # Latch the main power hold (GPIO2) high through deep sleep, otherwise
+  # the M5Paper powers off on battery.
+  - id: before_deep_sleep
+    then:
+      - lambda: |-
+          gpio_hold_en(GPIO_NUM_2);
+          gpio_deep_sleep_hold_en();
+
+switch:
+  # Main power hold: the M5Paper switches itself off on battery unless
+  # GPIO2 is driven high. Held through deep sleep (see before_deep_sleep).
+  - platform: gpio
+    id: main_power
+    pin:
+      number: GPIO2
+      ignore_strapping_warning: true
+    restore_mode: ALWAYS_ON
+    internal: true
+
+binary_sensor:
+  # Left button: page back (GPIO37 is input-only with an external pull-up)
+  - platform: gpio
+    id: btn_left
+    pin:
+      number: GPIO37
+      mode: INPUT
+      inverted: true
+    on_press:
+      - script.execute: action_page_back
+
+  # Right button: page forward
+  - platform: gpio
+    id: btn_right
+    pin:
+      number: GPIO39
+      mode: INPUT
+      inverted: true
+      allow_other_uses: true
+    # GPIO39 can glitch briefly when WiFi/ADC power up (ESP32 silicon
+    # erratum), so ignore presses shorter than 10ms
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      - script.execute: action_page_forward
+
+  # OK button (rocker push): short press cycles the view, 1s hold jumps
+  # back to today.
+  - platform: gpio
+    id: btn_ok
+    pin:
+      number: GPIO38
+      mode: INPUT
+      inverted: true
+      allow_other_uses: true
+    on_multi_click:
+      - timing:
+          - ON for at most 0.8s
+          - OFF for at least 0.1s
+        then:
+          - script.execute: action_cycle_view
+      - timing:
+          - ON for at least 1s
+        then:
+          - script.execute: action_today
+
+sensor:
+  - platform: adc
+    id: battery_voltage
+    name: Battery voltage
+    pin: GPIO35
+    attenuation: 12db
+    # Read on demand by the read_battery script (once per wake)
+    update_interval: never
+    filters:
+      - multiply: 2.0
+
+spi:
+  clk_pin: GPIO14
+  mosi_pin:
+    number: GPIO12
+    ignore_strapping_warning: true
+  miso_pin: GPIO13
+
+display:
+  - platform: it8951
+    id: epaper
+    # Pins (cs 15, busy 27, reset/EPD power 23) are the model defaults;
+    # cs is restated only to silence the GPIO15 strapping warning.
+    model: m5stack-m5paper
+    cs_pin:
+      number: GPIO15
+      ignore_strapping_warning: true
+    # Landscape with the rocker switch on the top edge
+    rotation: 0
+    # Packed 1bpp: the calendar is pure black/white, and monochrome enables
+    # fast DU partial refreshes between full GC16 cleans.
+    grayscale: false
+    dithering: false
+    full_update_every: 10
+    # Redrawn from the fetch script; never on a timer.
+    update_interval: never
+    # Shared with the host screenshot config - see common/calendar-render.yaml
+    lambda: !include ../common/calendar-render.yaml
