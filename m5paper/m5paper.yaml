@@ -5,10 +5,13 @@
 # render lambda and fonts) is the shared package in ../common, and this
 # file plugs the M5Paper into its hooks.
 #
-# - Used in landscape with the rocker switch on the top edge: the left /
+# - Landscape (default) has the rocker switch on the top edge: the left /
 #   right rocker positions page backward / forward through the days.
-# - OK (push the rocker in): short press cycles the view (day <-> 3-day),
+#   OK (push the rocker in): short press cycles the view (day <-> 3-day),
 #   long press (1s) jumps back to today.
+# - Portrait (Orientation select) has the rocker on the right edge and
+#   shows a single day in larger text: up / down page backward / forward
+#   (the same buttons as landscape left / right) and OK goes back to today.
 # - Only the right and OK buttons wake it from deep sleep: the original
 #   ESP32 can wake on an active-low button through ext0 (one pin) and
 #   ext1 ALL_LOW (a single pin here), so the left button cannot. The wake
@@ -109,6 +112,35 @@ script:
           gpio_hold_en(GPIO_NUM_2);
           gpio_deep_sleep_hold_en();
 
+select:
+  # Landscape (rocker on top, day / 3-day views) or portrait (rocker on the
+  # right, a single day in larger text). The restored value is applied at
+  # boot through on_value, before the first render.
+  - platform: template
+    id: orientation
+    name: Orientation
+    entity_category: config
+    icon: mdi:phone-rotate-portrait
+    options:
+      - Landscape
+      - Portrait
+    initial_option: Landscape
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: |-
+          const bool portrait = i == 1;
+          id(portrait_mode) = portrait;
+          // Portrait has only the day view
+          if (portrait)
+            id(view_days) = 1;
+          // 270 degrees turns the panel's top edge (the rocker) to the right
+          id(epaper).set_rotation(portrait ? display::DISPLAY_ROTATION_270_DEGREES
+                                           : display::DISPLAY_ROTATION_0_DEGREES);
+      # Refetch rather than redraw directly - see battery_display_mode in
+      # the common package
+      - script.execute: fetch_events
+
 switch:
   # Main power hold: the M5Paper switches itself off on battery unless
   # GPIO2 is driven high. Held through deep sleep (see before_deep_sleep).
@@ -193,7 +225,8 @@ display:
     cs_pin:
       number: GPIO15
       ignore_strapping_warning: true
-    # Landscape with the rocker switch on the top edge
+    # Landscape with the rocker switch on the top edge; the Orientation
+    # select rotates it to portrait at runtime
     rotation: 0
     # Packed 1bpp: the calendar is pure black/white, and monochrome enables
     # fast DU partial refreshes between full GC16 cleans.
