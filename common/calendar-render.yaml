@@ -11,6 +11,9 @@
   const auto black = Color::BLACK;
   const bool use_12h = id(clock_12h).state;
   const bool wrap_titles = id(title_overflow).current_option().str() == "Word wrap";
+  // Portrait (a device with an Orientation select): a single day with
+  // larger text, on a narrow 540px-ish width
+  const bool portrait = id(portrait_mode);
   auto fmt_time = [&](int hour, int minute) -> std::string {
     if (use_12h) {
       int h = hour % 12;
@@ -24,96 +27,18 @@
            width, height, id(data_state), (unsigned) id(cal_starts).size(),
            YESNO(!id(calendar_ids).state.empty()));
 
-  // ---- Wi-Fi setup screen (no credentials saved yet) ----
-  if (id(wifi_setup)) {
-    it.print(width / 2, 40, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
-    it.print(width / 2, 95, id(font_event_big), black, TextAlign::CENTER,
-             "Connect this device to Wi-Fi, using any of:");
-    it.print(width / 2, 135, id(font_event_big), black, TextAlign::CENTER,
-             "Bluetooth: set it up from Home Assistant");
-    it.print(width / 2, 175, id(font_event_big), black, TextAlign::CENTER,
-             "USB: open web.esphome.io in Chrome or Edge");
-    it.print(width / 2, 215, id(font_event_big), black, TextAlign::CENTER,
-             "Hotspot: scan below, then open 192.168.4.1");
-    // Join-the-hotspot QR code, centred; 5px modules stay readable for a
-    // phone camera on e-paper. The page background is the quiet zone.
-    const int qr_scale = 5;
-    const int qr_px = id(wifi_qr).get_size() * qr_scale;
-    it.qr_code((width - qr_px) / 2, 245, id(wifi_qr), black, qr_scale);
-    it.printf(width / 2, 245 + qr_px + 8, id(font_event), black, TextAlign::TOP_CENTER, "Wi-Fi: %s",
-              id(ap_ssid).c_str());
-    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
-             "The device stays awake until Wi-Fi is set up");
-    return;
-  }
-
-  // ---- First-boot setup screen ----
-  if (id(calendar_ids).state.empty()) {
-    it.print(width / 2, 110, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
-    it.print(width / 2, 190, id(font_event_big), black, TextAlign::CENTER,
-             "1. In Home Assistant, allow this device to perform actions");
-    it.print(width / 2, 235, id(font_event_big), black, TextAlign::CENTER,
-             "2. Fill in the Calendars text entity (e.g. calendar.family)");
-    it.print(width / 2, 280, id(font_event_big), black, TextAlign::CENTER,
-             "3. Pick a battery display style (optional)");
-    it.print(width / 2, 325, id(font_event_big), black, TextAlign::CENTER,
-             "4. Press the Confirm setup button");
-    it.print(width / 2, 400, id(font_small), black, TextAlign::CENTER,
-             "The device stays awake until setup is confirmed");
-    return;
-  }
-
-  if (id(data_state) == 0 || !now.is_valid()) {
-    it.print(width / 2, height / 2, id(font_header), black, TextAlign::CENTER, "Loading calendar...");
-    return;
-  }
-
-  const int days = id(view_days);
-  const time_t base_ts = now.timestamp + (time_t) id(day_offset) * 86400;
-
-  // ---- Header ----
-  auto start_day = ESPTime::from_epoch_local(base_ts);
-  auto end_day = ESPTime::from_epoch_local(base_ts + (time_t) (days - 1) * 86400);
-  std::string title;
-  if (days == 1) {
-    title = (id(day_offset) == 0 ? "Today - " : "") + start_day.strftime("%A %d %B");
-  } else {
-    title = start_day.strftime("%d %b") + " - " + end_day.strftime("%d %b %Y");
-  }
-  it.print(16, 8, id(font_header), black, title.c_str());
-
-  const char *view_label = days == 1 ? "Day" : (days == 3 ? "3-Day" : "Week");
-  std::string batt;
-  const std::string bmode = id(battery_display_mode).current_option().str();
-  if (bmode == "Voltage") {
-    batt = str_sprintf("%.2f V", id(battery_voltage).state);
-  } else if (bmode == "Both") {
-    batt = str_sprintf("%.0f%% (%.2f V)", id(battery_pct).state, id(battery_voltage).state);
-  } else {
-    batt = str_sprintf("%.0f%%", id(battery_pct).state);
-  }
-  it.printf(width - 16, 8, id(font_day), black, TextAlign::TOP_RIGHT, "%s   %s", view_label, batt.c_str());
-  it.printf(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT, "updated %s",
-            fmt_time(now.hour, now.minute).c_str());
-  it.line(0, 56, width, 56, black);
-
-  // ---- Day columns ----
-  const int top = 64;
-  const int col_w = width / days;
-  auto *ev_font = days == 1 ? id(font_event_big) : id(font_event);
-  const int row_h = days == 1 ? 30 : 24;
-  const int max_y = height - row_h - 24;
-  // Real pixel width of a string in the event font - line budgets are
-  // measured, not estimated from character counts
-  auto text_w = [&](const std::string &t) -> int {
+  // Real pixel width of a string in a font - line budgets are measured,
+  // not estimated from character counts
+  auto text_w = [&](display::BaseFont *font, const std::string &t) -> int {
     int tx, ty, tw, th;
-    it.get_text_bounds(0, 0, t.c_str(), ev_font, TextAlign::TOP_LEFT, &tx, &ty, &tw, &th);
+    it.get_text_bounds(0, 0, t.c_str(), font, TextAlign::TOP_LEFT, &tx, &ty, &tw, &th);
     return tw;
   };
   // Greedy word-wrap into at most max_lines lines that each fit within
   // budget pixels; the last line gets "~" if anything was cut off.
   // max_lines == 1 gives plain measured truncation.
-  auto wrap_text = [&](const std::string &text, int budget, int max_lines) -> std::vector<std::string> {
+  auto wrap_text = [&](display::BaseFont *font, const std::string &text, int budget,
+                       int max_lines) -> std::vector<std::string> {
     std::vector<std::string> out;
     size_t pos = 0;
     while (pos < text.size() && (int) out.size() < max_lines) {
@@ -135,7 +60,7 @@
           wend = text.size();
         const std::string word = text.substr(wstart, wend - wstart);
         if (line.empty()) {
-          if (text_w(word) <= budget) {
+          if (text_w(font, word) <= budget) {
             line = word;
             pos = wend;
           } else {
@@ -146,7 +71,7 @@
               size_t clen = 1;
               while (p + clen < wend && (text[p + clen] & 0xC0) == 0x80)
                 clen++;
-              if (!line.empty() && text_w(line + text.substr(p, clen)) > budget)
+              if (!line.empty() && text_w(font, line + text.substr(p, clen)) > budget)
                 break;
               line += text.substr(p, clen);
               p += clen;
@@ -154,7 +79,7 @@
             pos = p;
             break;
           }
-        } else if (text_w(line + " " + word) <= budget) {
+        } else if (text_w(font, line + " " + word) <= budget) {
           line += " " + word;
           pos = wend;
         } else {
@@ -162,7 +87,7 @@
         }
       }
       if (pos < text.size() && (int) out.size() == max_lines - 1) {
-        while (!line.empty() && text_w(line + "~") > budget) {
+        while (!line.empty() && text_w(font, line + "~") > budget) {
           size_t cut = line.size() - 1;
           while (cut > 0 && (line[cut] & 0xC0) == 0x80)
             cut--;
@@ -176,6 +101,110 @@
     return out;
   };
 
+  // Centred, word-wrapped paragraphs for the setup screens: each item
+  // starts on a new line, wrapped lines are line_h apart and items are
+  // item_gap further apart. Returns the y below the last line.
+  auto print_items = [&](int y, display::BaseFont *font, int line_h, int item_gap,
+                         std::initializer_list<const char *> items) -> int {
+    for (const char *item : items) {
+      for (const auto &line : wrap_text(font, item, width - 32, 4)) {
+        it.print(width / 2, y, font, black, TextAlign::CENTER, line.c_str());
+        y += line_h;
+      }
+      y += item_gap;
+    }
+    return y;
+  };
+
+  // ---- Wi-Fi setup screen (no credentials saved yet) ----
+  if (id(wifi_setup)) {
+    it.print(width / 2, portrait ? 120 : 40, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
+    // Landscape: one line per item, 40px apart. Portrait: items wrap.
+    const int y = print_items(portrait ? 200 : 95, id(font_event_big), portrait ? 30 : 40, portrait ? 16 : 0,
+                              {"Connect this device to Wi-Fi, using any of:",
+                               "Bluetooth: set it up from Home Assistant",
+                               "USB: open web.esphome.io in Chrome or Edge",
+                               "Hotspot: scan below, then open 192.168.4.1"});
+    // Join-the-hotspot QR code, centred; 5px modules stay readable for a
+    // phone camera on e-paper. The page background is the quiet zone.
+    const int qr_scale = 5;
+    const int qr_px = id(wifi_qr).get_size() * qr_scale;
+    const int qr_y = y - 10 + (portrait ? 40 : 0);
+    it.qr_code((width - qr_px) / 2, qr_y, id(wifi_qr), black, qr_scale);
+    it.printf(width / 2, qr_y + qr_px + 8, id(font_event), black, TextAlign::TOP_CENTER, "Wi-Fi: %s",
+              id(ap_ssid).c_str());
+    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+             "The device stays awake until Wi-Fi is set up");
+    return;
+  }
+
+  // ---- First-boot setup screen ----
+  if (id(calendar_ids).state.empty()) {
+    it.print(width / 2, portrait ? 200 : 110, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
+    // Landscape: one line per step, 45px apart. Portrait: steps wrap.
+    const int y = print_items(portrait ? 290 : 190, id(font_event_big), portrait ? 30 : 45, portrait ? 20 : 0,
+                              {"1. In Home Assistant, allow this device to perform actions",
+                               "2. Fill in the Calendars text entity (e.g. calendar.family)",
+                               "3. Pick a battery display style (optional)", "4. Press the Confirm setup button"});
+    it.print(width / 2, y + 30, id(font_small), black, TextAlign::CENTER,
+             "The device stays awake until setup is confirmed");
+    return;
+  }
+
+  if (id(data_state) == 0 || !now.is_valid()) {
+    it.print(width / 2, height / 2, id(font_header), black, TextAlign::CENTER, "Loading calendar...");
+    return;
+  }
+
+  const int days = portrait ? 1 : id(view_days);
+  const time_t base_ts = now.timestamp + (time_t) id(day_offset) * 86400;
+
+  // ---- Header ----
+  auto start_day = ESPTime::from_epoch_local(base_ts);
+  auto end_day = ESPTime::from_epoch_local(base_ts + (time_t) (days - 1) * 86400);
+  std::string title;
+  if (portrait) {
+    // Weekday on its own large line, the date below it
+    title = (id(day_offset) == 0 ? "Today - " : "") + start_day.strftime("%d %B %Y");
+  } else if (days == 1) {
+    title = (id(day_offset) == 0 ? "Today - " : "") + start_day.strftime("%A %d %B");
+  } else {
+    title = start_day.strftime("%d %b") + " - " + end_day.strftime("%d %b %Y");
+  }
+  if (portrait) {
+    it.print(16, 6, id(font_header_xl), black, start_day.strftime("%A").c_str());
+    it.print(16, 66, id(font_header), black, title.c_str());
+  } else {
+    it.print(16, 8, id(font_header), black, title.c_str());
+  }
+
+  const char *view_label = days == 1 ? "Day" : (days == 3 ? "3-Day" : "Week");
+  std::string batt;
+  const std::string bmode = id(battery_display_mode).current_option().str();
+  if (bmode == "Voltage") {
+    batt = str_sprintf("%.2f V", id(battery_voltage).state);
+  } else if (bmode == "Both") {
+    batt = str_sprintf("%.0f%% (%.2f V)", id(battery_pct).state, id(battery_voltage).state);
+  } else {
+    batt = str_sprintf("%.0f%%", id(battery_pct).state);
+  }
+  // Portrait has a single view, so no view label
+  if (portrait) {
+    it.printf(width - 16, 10, id(font_day), black, TextAlign::TOP_RIGHT, "%s", batt.c_str());
+  } else {
+    it.printf(width - 16, 8, id(font_day), black, TextAlign::TOP_RIGHT, "%s   %s", view_label, batt.c_str());
+  }
+  it.printf(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT, "updated %s",
+            fmt_time(now.hour, now.minute).c_str());
+  const int header_h = portrait ? 108 : 56;
+  it.line(0, header_h, width, header_h, black);
+
+  // ---- Day columns ----
+  const int top = header_h + (portrait ? 14 : 8);
+  const int col_w = width / days;
+  display::BaseFont *ev_font = portrait ? id(font_event_xl) : (days == 1 ? id(font_event_big) : id(font_event));
+  const int row_h = portrait ? 38 : (days == 1 ? 30 : 24);
+  const int max_y = height - row_h - 24;
   for (int d = 0; d < days; d++) {
     const int x = d * col_w;
     auto day = ESPTime::from_epoch_local(base_ts + (time_t) d * 86400);
@@ -214,13 +243,13 @@
         body = id(cal_titles)[i];
       }
       const int avail = col_w - 16;  // 8px margin each side
-      const int prefix_w = text_w(prefix);
+      const int prefix_w = text_w(ev_font, prefix);
       // Weekly view: the time gets its own line and the title starts on
       // the next line with a small indent
       const bool stack_time = !all_day && days == 7;
       const int indent = stack_time ? 12 : prefix_w;
       const int max_title_lines = wrap_titles ? (stack_time ? 2 : 3) : 1;
-      auto title_lines = wrap_text(body, avail - indent, max_title_lines);
+      auto title_lines = wrap_text(ev_font, body, avail - indent, max_title_lines);
       if (stack_time) {
         it.print(x + 8, y, ev_font, black, prefix.c_str());
         y += row_h;
@@ -237,10 +266,11 @@
       }
       shown++;
     }
+    auto *note_font = portrait ? id(font_event_big) : id(font_small);
     if (hidden > 0) {
-      it.printf(x + 8, y, id(font_small), black, "+%d more", hidden);
+      it.printf(x + 8, y, note_font, black, "+%d more", hidden);
     } else if (shown == 0) {
-      it.print(x + 8, y, id(font_small), black, days == 1 ? "No events" : "-");
+      it.print(x + 8, y, note_font, black, days == 1 ? "No events" : "-");
     }
   }
 
@@ -251,6 +281,10 @@
   } else if (id(data_state) == 2) {
     it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
              "! Could not reach Home Assistant - showing last known events");
+  } else if (portrait) {
+    // Single-day view: the view button goes back to today
+    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+             "up: back    ${view_button}: today    down: forward");
   } else {
     it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
              "left: back    ${view_button}: change view (hold: today)    right: forward");
