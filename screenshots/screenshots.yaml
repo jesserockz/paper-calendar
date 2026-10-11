@@ -8,6 +8,8 @@
 # events, one BMP per view is written to
 # .esphome/snapshots/paper-calendar-screenshots/ (override with the
 # ESPHOME_SNAPSHOT_DIR environment variable), and the binary exits.
+# snapshot.take never overwrites an existing file (it logs an error and
+# skips it), so delete the old BMPs before re-running.
 # Convert the BMPs to PNG and put them in static/screenshots/.
 #
 # This config is a development tool: it is not built by CI (only
@@ -67,6 +69,15 @@ esphome:
       - snapshot.take:
           id: epaper
           filename: three-day-view.bmp
+      # Portrait day view, on the M5Paper's 540x960 panel
+      - lambda: |-
+          id(view_days) = 1;
+          id(portrait_mode) = true;
+      - component.update: epaper_portrait
+      - snapshot.take:
+          id: epaper_portrait
+          filename: portrait-day-view.bmp
+      - lambda: "id(portrait_mode) = false;"
       # Wi-Fi setup screen (shown while no Wi-Fi credentials are saved)
       - lambda: |-
           id(calendar_ids).publish_state("");
@@ -102,6 +113,9 @@ globals:
   - id: view_days
     type: int
     initial_value: "1"
+  - id: portrait_mode
+    type: bool
+    initial_value: "false"
   - id: setup_done
     type: bool
     initial_value: "false"
@@ -178,3 +192,13 @@ display:
     dimensions: 800x480
     update_interval: never
     lambda: !include ../common/calendar-render.yaml
+  - platform: snapshot
+    id: epaper_portrait
+    # M5Paper panel in portrait (the Orientation select)
+    dimensions: 540x960
+    update_interval: never
+    # With the M5Paper's view button name in the footer hint
+    lambda: !include
+      file: ../common/calendar-render.yaml
+      vars:
+        view_button: ok

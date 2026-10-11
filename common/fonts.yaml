@@ -37,3 +37,18 @@ font:
     # Roboto lacks standalone combining accents (U+03xx); the precomposed
     # accented letters are all present, so the missing-glyph warnings are noise.
     ignore_missing_glyphs: true
+  # Portrait single-day view (larger header and event text)
+  - file: gfonts://Roboto+Mono@700
+    id: font_header_xl
+    size: 48
+    glyphsets: [GF_Latin_Core]
+    # Roboto lacks standalone combining accents (U+03xx); the precomposed
+    # accented letters are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
+  - file: gfonts://Roboto+Mono@400
+    id: font_event_xl
+    size: 28
+    glyphsets: [GF_Latin_Core]
+    # Roboto lacks standalone combining accents (U+03xx); the precomposed
+    # accented letters are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true

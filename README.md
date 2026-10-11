@@ -18,12 +18,15 @@ Each supported device has its own folder with its own prebuilt firmware, install
 ## Features
 
 - Day and 3-day views of any number of Home Assistant calendars, merged and sorted.
+- On the M5Paper, an **Orientation** setting switches to portrait: a single day in larger text.
 - Deep sleep between refreshes with a configurable interval, awake time, and an overnight downtime window.
 - Buttons wake the device *and* perform their action: page through the days or switch the view. On the reTerminal, a short beep confirms the press registered, since e-paper takes a few seconds to redraw (the M5Paper has no buzzer).
 - All-day events, word-wrap or truncation for long titles, an ignore list for events you do not want shown, 12/24-hour clock, and a battery readout (percentage, voltage, or both) in the header.
 - Everything is configured through entities on the device itself - no Home Assistant helpers, template sensors, or YAML edits needed.
 
 ![3-day view](static/screenshots/three-day-view.png)
+
+<img src="static/screenshots/portrait-day-view.png" alt="Portrait day view (M5Paper)" width="270">
 
 ## Installation
 
@@ -62,6 +65,7 @@ All of these live on the device and persist across deep sleep and reboots:
 | Ignored events       | Text   | Comma separated event titles to hide, matched case-insensitively against the full title, e.g. `Out of office, Lunch`.                                                                   |
 | Long event names     | Select | `Truncate` cuts long titles with `~`; `Word wrap` wraps them onto up to three lines at word boundaries.                                                                                 |
 | Battery display      | Select | Header battery readout: `Percentage`, `Voltage`, or `Both`.                                                                                                                             |
+| Orientation          | Select | M5Paper only: `Landscape` (rocker on top; day and 3-day views) or `Portrait` (rocker on the right; a single day in larger text).                                                        |
 | Refresh interval     | Number | Minutes asleep between display refreshes (5 to 720).                                                                                                                                    |
 | Awake time           | Number | Seconds the device stays awake after boot or the last button press (10 to 300).                                                                                                         |
 | 12-hour time         | Switch | Show times as `6:30pm` instead of `18:30`.                                                                                                                                              |
@@ -93,7 +97,16 @@ On the M5Paper (landscape, rocker on top), the rocker and its push button are:
 | OK (push) | Short   | Cycle the view: day <-> 3-day.                                                      |
 | OK (push) | Hold 1s | Jump back to today (only while the device is awake; a wake always starts on today). |
 
-Only Right and OK wake the M5Paper from deep sleep (the original ESP32 can wake on at most one active-low pin per wake source, so Left cannot). The wake press performs its normal action. There is no buzzer, so there is no beep.
+In portrait (the **Orientation** setting, rocker on the right edge), the same buttons are:
+
+| Button    | Press   | Action                                                                              |
+|-----------|---------|-------------------------------------------------------------------------------------|
+| Up        | Short   | Page one day back (the landscape Left button).                                      |
+| Down      | Short   | Page one day forward (the landscape Right button).                                  |
+| OK (push) | Short   | Jump back to today (portrait has only the day view).                                |
+| OK (push) | Hold 1s | Jump back to today.                                                                 |
+
+Only Right / Down and OK wake the M5Paper from deep sleep (the original ESP32 can wake on at most one active-low pin per wake source, so Left / Up cannot). The wake press performs its normal action. There is no buzzer, so there is no beep.
 
 ## Updates
 
@@ -161,6 +174,7 @@ Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reter
 - the wake sources under `deep_sleep:` (the common package sets its `id: sleeper`), with `on_wake` calling the `wake_page_back`, `wake_page_forward` or `wake_cycle_view` scripts;
 - the buttons, calling the `action_page_back`, `action_page_forward`, `action_cycle_view` and `action_today` scripts;
 - optionally, a `view_button` substitution naming the view / back-to-today button for the footer hint on the display (defaults to `middle`);
+- optionally, portrait support: set the common `portrait_mode` global (and `view_days` to 1) and rotate the display, e.g. from a select like the M5Paper's **Orientation**. The render lambda then draws a single day in larger text, and `wake_cycle_view` jumps back to today instead of cycling the view;
 - these hook scripts, which the common package calls but never defines:
 
 | Hook script         | Called                                                        | reTerminal E1001                        |

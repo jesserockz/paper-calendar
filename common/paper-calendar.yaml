@@ -57,6 +57,11 @@
 # Optional substitution:
 #   - view_button: the view / back-to-today button's name in the footer
 #     hint (default "middle").
+# Optional portrait support: a device that can be held in portrait sets
+# the portrait_mode global (e.g. from an Orientation select that also
+# rotates the display) and forces view_days to 1. The render lambda then
+# draws a single day with larger text, and the view button jumps back to
+# today instead of cycling the view.
 
 substitutions:
   # A device's own substitutions override this default
@@ -145,6 +150,13 @@ globals:
     type: int
     restore_value: true
     initial_value: "1"
+  # True while the display is in portrait (set by the device's
+  # Orientation select, if it has one): a single-day view only. Restored,
+  # so a wake press already knows the orientation in on_wake.
+  - id: portrait_mode
+    type: bool
+    restore_value: true
+    initial_value: "false"
   # Set by the "Confirm setup" button. Until then the device never
   # sleeps, so there is time to fill in the entities below.
   - id: setup_done
@@ -395,10 +407,18 @@ script:
 
   - id: wake_cycle_view
     then:
-      - script.execute: feedback_click
-      - lambda: |-
-          // Week view disabled for now - the columns are too narrow
-          id(view_days) = id(view_days) == 1 ? 3 : 1;
+      - if:
+          condition:
+            lambda: "return id(portrait_mode);"
+          then:
+            # Portrait has only the day view: go back to today instead
+            - script.execute: feedback_home
+            - lambda: "id(day_offset) = 0;"
+          else:
+            - script.execute: feedback_click
+            - lambda: |-
+                // Week view disabled for now - the columns are too narrow
+                id(view_days) = id(view_days) == 1 ? 3 : 1;
 
   # Ask HA for the events covering the currently selected range, then
   # redraw. mode: restart so rapid button presses just supersede the
