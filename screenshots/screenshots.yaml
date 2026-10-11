@@ -31,6 +31,8 @@ esphome:
           id(calendar_ids).publish_state("calendar.family, calendar.work");
           id(battery_voltage).publish_state(4.02f);
           id(battery_pct).publish_state(81.0f);
+          id(room_temperature) = 21.5f;
+          id(room_humidity) = 48.0f;
           const time_t now_ts = id(ha_time).now().timestamp;
           // "YYYY-MM-DD" for today + offset days
           auto day_str = [&](int offset) -> std::string {
@@ -63,8 +65,11 @@ esphome:
       - snapshot.take:
           id: epaper
           filename: day-view.bmp
-      # 3-day view
+      # 3-day view, with room humidity too
       - lambda: "id(view_days) = 3;"
+      - select.set:
+          id: climate_display_mode
+          option: Temperature and humidity
       - component.update: epaper
       - snapshot.take:
           id: epaper
@@ -128,6 +133,12 @@ globals:
   - id: data_state
     type: int
     initial_value: "0"
+  - id: room_temperature
+    type: float
+    initial_value: "NAN"
+  - id: room_humidity
+    type: float
+    initial_value: "NAN"
   - id: cal_starts
     type: std::vector<std::string>
   - id: cal_ends
@@ -166,6 +177,25 @@ select:
       - Voltage
       - Both
     initial_option: Percentage
+    optimistic: true
+
+  - platform: template
+    id: climate_display_mode
+    name: Climate display
+    options:
+      - "Off"
+      - Temperature
+      - Temperature and humidity
+    initial_option: Temperature
+    optimistic: true
+
+  - platform: template
+    id: temperature_unit
+    name: Temperature unit
+    options:
+      - Celsius
+      - Fahrenheit
+    initial_option: Celsius
     optimistic: true
 
 sensor:
