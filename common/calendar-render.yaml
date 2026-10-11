@@ -188,14 +188,37 @@
   } else {
     batt = str_sprintf("%.0f%%", id(battery_pct).state);
   }
-  // Portrait has a single view, so no view label
-  if (portrait) {
-    it.printf(width - 16, 10, id(font_day), black, TextAlign::TOP_RIGHT, "%s", batt.c_str());
-  } else {
-    it.printf(width - 16, 8, id(font_day), black, TextAlign::TOP_RIGHT, "%s   %s", view_label, batt.c_str());
+  // Room climate readout, e.g. "21.5 C 48% RH" with a degree sign. Empty
+  // when the mode is Off, or with no reading (NAN: no sensor, or the read
+  // failed).
+  std::string climate;
+  const std::string cmode = id(climate_display_mode).current_option().str();
+  const float room_c = id(room_temperature);
+  if (cmode != "Off" && !std::isnan(room_c)) {
+    const bool fahrenheit = id(temperature_unit).current_option().str() == "Fahrenheit";
+    // \u00B0 is the degree sign, kept escaped so this file stays ASCII
+    climate = str_sprintf("%.1f\u00B0%c", fahrenheit ? room_c * 9.0f / 5.0f + 32.0f : room_c, fahrenheit ? 'F' : 'C');
+    if (cmode == "Temperature and humidity" && !std::isnan(id(room_humidity)))
+      climate += str_sprintf(" %.0f%% RH", id(room_humidity));
   }
-  it.printf(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT, "updated %s",
-            fmt_time(now.hour, now.minute).c_str());
+  // Portrait has a single view, so no view label
+  std::string status = portrait ? batt : std::string(view_label) + "   " + batt;
+  // The climate readout leads the status line when it clears the title
+  // on the left; otherwise it moves down beside "updated".
+  const int title_right = 16 + (portrait ? text_w(id(font_header_xl), start_day.strftime("%A"))
+                                         : text_w(id(font_header), title));
+  bool climate_top = false;
+  if (!climate.empty()) {
+    const std::string with_climate = climate + "   " + status;
+    if (width - 16 - text_w(id(font_day), with_climate) >= title_right + 24) {
+      status = with_climate;
+      climate_top = true;
+    }
+  }
+  it.print(width - 16, portrait ? 10 : 8, id(font_day), black, TextAlign::TOP_RIGHT, status.c_str());
+  const std::string updated = "updated " + fmt_time(now.hour, now.minute);
+  it.print(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT,
+           (climate.empty() || climate_top ? updated : climate + "   " + updated).c_str());
   const int header_h = portrait ? 108 : 56;
   it.line(0, header_h, width, header_h, black);
 

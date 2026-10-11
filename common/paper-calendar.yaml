@@ -31,6 +31,9 @@
 #   - Ignored events (text): comma separated event titles to hide
 #   - Long event names (select): truncate with "~" or word-wrap
 #   - Battery display (select): Percentage / Voltage / Both
+#   - Climate display (select): Off / Temperature / Temperature and
+#     humidity, from the device's room sensor (if it has one)
+#   - Temperature unit (select): Celsius / Fahrenheit
 #   - Refresh interval (number): minutes asleep between refreshes
 #   - Awake time (number): seconds awake after boot / the last button press
 #   - 12-hour time (switch): clock format on the display
@@ -46,6 +49,10 @@
 #     refused). E.g. a buzzer chirp; no-ops on a device without one.
 #   - read_battery: refresh the battery_voltage sensor (the device's ADC
 #     sensor, in volts at the battery). Run once per wake.
+#   - read_climate: read the device's room temperature / humidity sensor
+#     into the room_temperature / room_humidity globals. Run once per
+#     wake; empty on a device without one (the header then shows no
+#     climate readout).
 #   - before_deep_sleep: runs, and is waited for, right before
 #     deep_sleep.enter. E.g. latch a power-hold GPIO; empty if not needed.
 # And the ids this package expects the device to provide:
@@ -93,6 +100,7 @@ esphome:
             if (id(view_days) > 3)
               id(view_days) = 3;
         - script.execute: read_battery
+        - script.execute: read_climate
         - script.execute: idle_sleep
         - script.execute: fetch_events
 
@@ -189,6 +197,16 @@ globals:
   - id: fetch_retry
     type: int
     initial_value: "0"
+  # Room temperature (degrees C) and relative humidity (%) for the header,
+  # set by the device's read_climate hook. Deliberately not restored: NAN
+  # (no reading this wake, or no sensor) hides the readout rather than
+  # showing a stale value.
+  - id: room_temperature
+    type: float
+    initial_value: "NAN"
+  - id: room_humidity
+    type: float
+    initial_value: "NAN"
   # Fetched events, kept sorted by start. Parallel vectors: ISO start,
   # ISO end, title. All-day events have a 10-character date-only start.
   - id: cal_starts
@@ -340,6 +358,38 @@ select:
     # Refetch instead of updating the display directly: the restore-on-boot
     # on_value would otherwise start a refresh that makes the display busy
     # and silently drops the first calendar render a few seconds later.
+    on_value:
+      - script.execute: fetch_events
+
+  # Header room climate readout, from the device's room sensor. Nothing is
+  # shown on a device without one, whatever this is set to.
+  - platform: template
+    id: climate_display_mode
+    name: Climate display
+    entity_category: config
+    icon: mdi:home-thermometer
+    options:
+      - "Off"
+      - Temperature
+      - Temperature and humidity
+    initial_option: Temperature
+    optimistic: true
+    restore_value: true
+    # Refetch rather than redraw directly - see battery_display_mode
+    on_value:
+      - script.execute: fetch_events
+
+  - platform: template
+    id: temperature_unit
+    name: Temperature unit
+    entity_category: config
+    icon: mdi:temperature-celsius
+    options:
+      - Celsius
+      - Fahrenheit
+    initial_option: Celsius
+    optimistic: true
+    restore_value: true
     on_value:
       - script.execute: fetch_events
 
