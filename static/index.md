@@ -17,9 +17,17 @@ Pick your device below to install the pre-built firmware via USB from the browse
 
 ## Seeed Studio reTerminal E1001
 
+[![Seeed Studio reTerminal E1001](devices/reterminal-e1001.jpg)](https://www.seeedstudio.com/reTerminal-E1001-p-6534.html)
+
+[Buy from the Seeed Studio store](https://www.seeedstudio.com/reTerminal-E1001-p-6534.html)
+
 <esp-web-install-button manifest="firmware/reterminal-e1001.manifest.json"></esp-web-install-button>
 
 ## M5Stack M5Paper
+
+[![M5Stack M5Paper](devices/m5paper.jpg)](https://shop.m5stack.com/products/m5paper-esp32-development-kit-v1-1-960x540-4-7-eink-display-235-ppi)
+
+[Buy from the M5Stack store](https://shop.m5stack.com/products/m5paper-esp32-development-kit-v1-1-960x540-4-7-eink-display-235-ppi)
 
 <esp-web-install-button manifest="firmware/m5paper.manifest.json"></esp-web-install-button>
 
