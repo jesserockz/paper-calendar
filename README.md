@@ -22,9 +22,15 @@ Each supported device has its own folder with its own prebuilt firmware, install
 - Deep sleep between refreshes with a configurable interval, awake time, and an overnight downtime window.
 - Buttons wake the device *and* perform their action: page through the days or switch the view. On the reTerminal, a short beep confirms the press registered, since e-paper takes a few seconds to redraw (the M5Paper has no buzzer).
 - All-day events, word-wrap or truncation for long titles, an ignore list for events you do not want shown, 12/24-hour clock, and a battery readout (percentage, voltage, or both) in the header.
+- Unchanged screens are not redrawn: if a refresh finds the same events, day and battery level (the battery is bucketed), the display is left as is, which saves power and avoids flicker. The "updated HH:MM" stamp in the header is the time the data on screen was fetched, so when nothing changed the display (and its stamp) stays as it was.
+- Wakes are aligned to the day: besides the refresh interval, the device wakes shortly after today's events start or end and just after midnight (still respecting the downtime window), and an event in progress is marked with a solid bar in the left margin.
+- Button presses while awake use fast partial refreshes, with a full refresh every 10th update; the first refresh after every wake is always a full one, and a timed wake after partial refreshes does one full clean to clear ghosting.
+- If Home Assistant cannot be reached, the device draws the last known events from a cache kept in flash (surviving deep sleep and power loss), with an inverted **OFFLINE - data from HH:MM** note in the header. Days the cache does not cover show "Not available offline".
 - Everything is configured through entities on the device itself - no Home Assistant helpers, template sensors, or YAML edits needed.
 
 ![3-day view](static/screenshots/three-day-view.png)
+
+![Offline indicator](static/screenshots/offline-view.png)
 
 <img src="static/screenshots/portrait-day-view.png" alt="Portrait day view (M5Paper)" width="270">
 
@@ -66,7 +72,7 @@ All of these live on the device and persist across deep sleep and reboots:
 | Long event names     | Select | `Truncate` cuts long titles with `~`; `Word wrap` wraps them onto up to three lines at word boundaries.                                                                                 |
 | Battery display      | Select | Header battery readout: `Percentage`, `Voltage`, or `Both`.                                                                                                                             |
 | Orientation          | Select | M5Paper only: `Landscape` (rocker on top; day and 3-day views) or `Portrait` (rocker on the right; a single day in larger text).                                                        |
-| Refresh interval     | Number | Minutes asleep between display refreshes (5 to 720).                                                                                                                                    |
+| Refresh interval     | Number | Longest sleep between refreshes in minutes (5 to 720); the device also wakes shortly after events start or end today, and just after midnight.                                          |
 | Awake time           | Number | Seconds the device stays awake after boot or the last button press (10 to 300).                                                                                                         |
 | 12-hour time         | Switch | Show times as `6:30pm` instead of `18:30`.                                                                                                                                              |
 | Downtime start / end | Time   | Refresh wakes that would land inside this window are deferred to its end, e.g. 22:00 to 06:30 stops overnight refreshes. Buttons still wake the device. Equal times disable the window. |
@@ -185,6 +191,8 @@ Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reter
 | `feedback_error`    | When **Confirm setup** is refused (Calendars empty)           | Buzzer double beep                      |
 | `read_battery`      | Once per wake, from `on_boot`; must update `battery_voltage`  | Powers the divider, samples, powers off |
 | `before_deep_sleep` | Right before `deep_sleep.enter`, which waits for it to finish | Nothing (`then: []`)                    |
+
+The common package assumes the display's first update after boot is a full refresh (true for `epaper_spi` and `it8951` with `full_update_every`), which is how ghosting from partial refreshes is cleared: after partial refreshes, the next timed wake redraws once even if nothing changed.
 
 A device without a buzzer defines the `feedback_*` scripts as `then: []`. Keep any `esphome: on_boot:` in list form: package lists are concatenated, but a dict-form `on_boot` would replace the common one.
 

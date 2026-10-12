@@ -31,7 +31,8 @@
 #   - Ignored events (text): comma separated event titles to hide
 #   - Long event names (select): truncate with "~" or word-wrap
 #   - Battery display (select): Percentage / Voltage / Both
-#   - Refresh interval (number): minutes asleep between refreshes
+#   - Refresh interval (number): the longest sleep between refreshes (the
+#     device also wakes shortly after events start / end, and after midnight)
 #   - Awake time (number): seconds awake after boot / the last button press
 #   - 12-hour time (switch): clock format on the display
 #   - Downtime start / end (time): no refresh wakes between these times
@@ -77,10 +78,76 @@ esphome:
   # 2026.9.0: epaper_spi seeed-reterminal-e1001 model and deep_sleep
   # per-pin on_wake (calendar.get_events action responses need 2025.10.0)
   min_version: 2026.9.0
+  # List form, so devices can add their own entries
+  includes:
+    - <esp_sleep.h>
   # List form, so device and factory configs can add their own entries
   on_boot:
     - priority: -100
       then:
+        # Anything but the sleep timer (power-on, reset, OTA reboot, a button
+        # wake) redraws even if the data looks unchanged
+        - lambda: |-
+            if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER)
+              id(force_redraw) = true;
+        # Home Assistant's timezone from the last sync, and the last good
+        # events, so a wake that cannot reach Home Assistant still draws the
+        # right day and times. Both run before fetch_events below.
+        - lambda: |-
+            #ifdef USE_TIME_TIMEZONE
+            static_assert(sizeof(esphome::time::ParsedTimezone) <= 32, "saved_tz is too small for ParsedTimezone");
+            if (id(saved_tz_ok)) {
+              esphome::time::ParsedTimezone tz;
+              memcpy(&tz, id(saved_tz).data(), sizeof(tz));
+              esphome::time::set_global_tz(tz);
+            }
+            #endif
+            // Decode the cache: header line, then one line per event
+            const char *raw = id(cal_cache).data();
+            const std::string text(raw, strnlen(raw, id(cal_cache).size()));
+            auto split = [](const std::string &line) -> std::vector<std::string> {
+              std::vector<std::string> fields;
+              size_t b = 0;
+              while (true) {
+                const size_t t = line.find('\t', b);
+                if (t == std::string::npos) {
+                  fields.push_back(line.substr(b));
+                  return fields;
+                }
+                fields.push_back(line.substr(b, t - b));
+                b = t + 1;
+              }
+            };
+            const std::string cfg = str_sprintf(
+                "%u", (unsigned) fnv1_hash(id(calendar_ids).state + "|" + id(ignore_events).state));
+            size_t nl = text.find('\n');
+            if (nl == std::string::npos) {
+              ESP_LOGI("calendar", "cache: empty");
+              return;
+            }
+            const auto head = split(text.substr(0, nl));
+            if (head.size() != 4 || head[0] != "v1" || head[1] != cfg) {
+              ESP_LOGI("calendar", "cache: ignored (other version or settings)");
+              return;
+            }
+            id(fetched_at) = id(cache_time);
+            id(cal_from) = head[2];
+            id(cal_to) = head[3];
+            size_t pos = nl + 1;
+            while (pos < text.size()) {
+              nl = text.find('\n', pos);
+              if (nl == std::string::npos)
+                nl = text.size();
+              const auto f = split(text.substr(pos, nl - pos));
+              if (f.size() == 3) {
+                id(cal_starts).push_back(f[0]);
+                id(cal_ends).push_back(f[1]);
+                id(cal_titles).push_back(f[2]);
+              }
+              pos = nl + 1;
+            }
+            ESP_LOGI("calendar", "cache: loaded %u events from %s to %s", (unsigned) id(cal_starts).size(),
+                     id(cal_from).c_str(), id(cal_to).c_str());
         # The fallback hotspot (ap: {}) SSID defaults to the device name,
         # which includes the MAC suffix - remember it for the setup screen.
         - lambda: |-
@@ -129,6 +196,7 @@ time:
   - platform: homeassistant
     id: ha_time
     on_time_sync:
+      - lambda: "id(time_synced) = true;"
       - script.execute: fetch_events
 
 # Sleep length comes from the "Refresh interval" number at the
@@ -197,6 +265,70 @@ globals:
     type: std::vector<std::string>
   - id: cal_titles
     type: std::vector<std::string>
+  # When the data in the cal_* vectors was fetched (0 = never). Shown in the
+  # header as "updated HH:MM". Not restored: cache_time below carries it.
+  - id: fetched_at
+    type: time_t
+    initial_value: "0"
+  # Date keys ("YYYY-MM-DD") of the range the cal_* vectors cover, [from, to).
+  # Days outside it show "Not available offline" instead of "No events".
+  - id: cal_from
+    type: std::string
+  - id: cal_to
+    type: std::string
+  # The last successful today-anchored fetch, so a wake whose fetch fails can
+  # still draw the last good events. NUL-terminated text: a header line
+  # "v1<TAB>cfg_hash<TAB>from<TAB>to" then one line per event
+  # "start<TAB>end<TAB>title". cfg_hash covers the Calendars and Ignored
+  # events entities, so a cache from other settings is discarded. Kept in
+  # flash (NVS), written only when its contents change, and survives power
+  # loss too. A fixed array, since restored strings are limited to 254 bytes.
+  - id: cal_cache
+    type: std::array<char, 3072>
+    restore_value: true
+  # When cal_cache was fetched. Kept out of the cache itself, so a fetch that
+  # returns the same events rewrites these 8 bytes, not the whole cache.
+  - id: cache_time
+    type: time_t
+    restore_value: true
+    initial_value: "0"
+  # Home Assistant's timezone from the last sync, re-applied at boot so a
+  # wake that cannot reach Home Assistant still draws the right day and
+  # times (otherwise the device would use the build machine's timezone until
+  # Home Assistant syncs). Raw bytes of esphome::time::ParsedTimezone.
+  - id: saved_tz
+    type: std::array<uint8_t, 32>
+    restore_value: true
+  - id: saved_tz_ok
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  # True once Home Assistant has synced the time (and so the timezone) in
+  # this boot; only then is the timezone worth saving.
+  - id: time_synced
+    type: bool
+    initial_value: "false"
+  # Hash of what is on the panel (see the redraw script). Restored, so a
+  # timed wake can tell that nothing changed and leave the panel alone.
+  - id: shown_hash
+    type: uint32_t
+    restore_value: true
+    initial_value: "0"
+  # True when the next render must happen regardless of the hash (power-on,
+  # reset, button presses). Not restored.
+  - id: force_redraw
+    type: bool
+    initial_value: "false"
+  # True when the panel's last render was not the first one after a boot, so
+  # it may have been a partial refresh and could show ghosting.
+  - id: ghosted
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  # Renders started since boot
+  - id: boot_renders
+    type: int
+    initial_value: "0"
 
 # ---- Configuration entities (set from Home Assistant) ----
 
@@ -364,27 +496,32 @@ button:
 script:
   # ---- Button actions ----
   # Called from the device's button binary_sensors. Each restarts the
-  # idle timer, gives press feedback, adjusts the view and refetches.
+  # idle timer, gives press feedback, adjusts the view and refetches. A
+  # button press always redraws, even if the render would look the same.
   - id: action_page_back
     then:
+      - lambda: "id(force_redraw) = true;"
       - script.execute: idle_sleep
       - script.execute: wake_page_back
       - script.execute: fetch_events
 
   - id: action_page_forward
     then:
+      - lambda: "id(force_redraw) = true;"
       - script.execute: idle_sleep
       - script.execute: wake_page_forward
       - script.execute: fetch_events
 
   - id: action_cycle_view
     then:
+      - lambda: "id(force_redraw) = true;"
       - script.execute: idle_sleep
       - script.execute: wake_cycle_view
       - script.execute: fetch_events
 
   - id: action_today
     then:
+      - lambda: "id(force_redraw) = true;"
       - script.execute: idle_sleep
       - script.execute: feedback_home
       - lambda: "id(day_offset) = 0;"
@@ -420,6 +557,62 @@ script:
                 // Week view disabled for now - the columns are too narrow
                 id(view_days) = id(view_days) == 1 ? 3 : 1;
 
+  # Redraws the panel, unless what it would show is what it already shows.
+  # The hash covers everything the render draws EXCEPT the "updated" stamp
+  # and the exact battery value: the stamp is excluded on purpose (otherwise
+  # every successful fetch would redraw), so a redraw that finds nothing
+  # changed leaves the old stamp on screen. The battery is bucketed so small
+  # drifts do not force a redraw. An event "in progress" flag is included
+  # because the render marks those (same condition as the render).
+  - id: redraw
+    then:
+      - if:
+          condition:
+            lambda: |-
+              auto now = id(ha_time).now();
+              const std::string today = now.is_valid() ? now.strftime("%Y-%m-%d") : "";
+              const std::string now19 = now.is_valid() ? now.strftime("%Y-%m-%d %H:%M:%S") : "";
+              const std::string bmode = id(battery_display_mode).current_option().str();
+              int batt_bucket = -1;
+              if (bmode == "Voltage") {
+                const float v = id(battery_voltage).state;
+                batt_bucket = isnan(v) ? -1 : (int) floorf(v * 20);
+              } else {
+                const float p = id(battery_pct).state;
+                batt_bucket = isnan(p) ? -1 : (int) lroundf(p / 10);
+              }
+              std::string key = str_sprintf("%d|%s|%d|%d|%d|%d|%s|%d|%d|%d|%d|%s|%s|%d|%s|%s", id(wifi_setup),
+                                            id(ap_ssid).c_str(), id(calendar_ids).state.empty(), id(setup_done),
+                                            id(data_state), now.is_valid(), today.c_str(), id(day_offset),
+                                            id(view_days), id(portrait_mode), id(clock_12h).state,
+                                            id(title_overflow).current_option().str().c_str(), bmode.c_str(),
+                                            batt_bucket, id(cal_from).c_str(), id(cal_to).c_str());
+              for (size_t i = 0; i < id(cal_starts).size(); i++) {
+                const std::string &s = id(cal_starts)[i];
+                const std::string &e = id(cal_ends)[i];
+                const bool in_progress = now.is_valid() && s.size() > 10 && s.compare(0, 10, today) == 0 &&
+                                         s.compare(0, 19, now19) <= 0 && e.compare(0, 19, now19) > 0;
+                key += "|" + s + "|" + e + "|" + id(cal_titles)[i] + "|" + (in_progress ? "1" : "0");
+              }
+              const uint32_t hash = fnv1_hash(key);
+              if (!id(force_redraw) && !id(ghosted) && hash == id(shown_hash)) {
+                ESP_LOGI("calendar", "redraw: nothing changed - display left as is");
+                return false;
+              }
+              id(shown_hash) = hash;
+              id(boot_renders) += 1;
+              // The first render after every boot is a full refresh on both
+              // supported panels; later ones may be partial and leave ghosting.
+              // So a timed wake after a session of partial refreshes redraws
+              // once (a full refresh) even when the data is unchanged.
+              id(ghosted) = id(boot_renders) > 1;
+              id(force_redraw) = false;
+              ESP_LOGI("calendar", "redraw: drawing (hash %08x, render %d since boot)", (unsigned) hash,
+                       id(boot_renders));
+              return true;
+          then:
+            - component.update: epaper
+
   # Ask HA for the events covering the currently selected range, then
   # redraw. mode: restart so rapid button presses just supersede the
   # previous request.
@@ -432,7 +625,7 @@ script:
           then:
             # Not on the network yet - the display shows the Wi-Fi setup screen.
             - logger.log: "fetch: no Wi-Fi credentials - drawing Wi-Fi setup screen"
-            - component.update: epaper
+            - script.execute: redraw
             - script.execute: idle_sleep
           else:
             - logger.log: "fetch: started, waiting for API"
@@ -456,7 +649,7 @@ script:
                   # No HA connection - show what we have with an error note.
                   - logger.log: "fetch: no API connection - drawing error screen"
                   - lambda: "id(data_state) = 2;"
-                  - component.update: epaper
+                  - script.execute: redraw
                   - script.execute: idle_sleep
                 else:
                   - if:
@@ -465,7 +658,7 @@ script:
                       then:
                         # Not configured yet - the display shows the setup screen.
                         - logger.log: "fetch: calendars not set - drawing setup screen"
-                        - component.update: epaper
+                        - script.execute: redraw
                         - script.execute: idle_sleep
                       else:
                         - logger.log: "fetch: calling calendar.get_events"
@@ -554,7 +747,52 @@ script:
                                   id(fetch_pending) = false;
                                   id(fetch_retry) = 0;
                                   ESP_LOGI("calendar", "fetch: got %u events - updating display", (unsigned) id(cal_starts).size());
-                              - component.update: epaper
+                                  // The range this response covers, as the request built it
+                                  const time_t now_ts = id(ha_time).now().timestamp;
+                                  id(fetched_at) = now_ts;
+                                  id(cal_from) = ESPTime::from_epoch_local(now_ts + (time_t) id(day_offset) * 86400)
+                                                     .strftime("%Y-%m-%d");
+                                  id(cal_to) = ESPTime::from_epoch_local(
+                                                   now_ts + (time_t) (id(day_offset) + id(view_days)) * 86400)
+                                                   .strftime("%Y-%m-%d");
+                                  // Only today-anchored ranges are cached: every wake starts on today
+                                  if (id(day_offset) == 0) {
+                                    const std::string cfg = str_sprintf(
+                                        "%u", (unsigned) fnv1_hash(id(calendar_ids).state + "|" + id(ignore_events).state));
+                                    const size_t cap = id(cal_cache).size();
+                                    std::string out = str_sprintf("v1\t%s\t%s\t%s\n", cfg.c_str(), id(cal_from).c_str(),
+                                                                  id(cal_to).c_str());
+                                    size_t dropped = 0;
+                                    for (size_t i = 0; i < id(cal_starts).size(); i++) {
+                                      std::string title = id(cal_titles)[i];
+                                      std::replace(title.begin(), title.end(), '\t', ' ');
+                                      std::replace(title.begin(), title.end(), '\n', ' ');
+                                      const std::string line = id(cal_starts)[i] + "\t" + id(cal_ends)[i] + "\t" + title + "\n";
+                                      // Once one line does not fit, the rest are dropped too (room kept for the NUL)
+                                      if (dropped > 0 || out.size() + line.size() + 1 > cap) {
+                                        dropped++;
+                                        continue;
+                                      }
+                                      out += line;
+                                    }
+                                    if (dropped > 0)
+                                      ESP_LOGW("calendar", "cache: full - %u events not cached", (unsigned) dropped);
+                                    // Rewritten in place only when the text differs: the restore
+                                    // global saves to flash on any change
+                                    if (strncmp(id(cal_cache).data(), out.c_str(), cap) != 0) {
+                                      id(cal_cache).fill(0);
+                                      memcpy(id(cal_cache).data(), out.data(), out.size());
+                                    }
+                                    id(cache_time) = id(fetched_at);
+                                  }
+                                  #ifdef USE_TIME_TIMEZONE
+                                  if (id(time_synced)) {
+                                    const auto &tz = esphome::time::get_global_tz();
+                                    memcpy(id(saved_tz).data(), &tz, sizeof(tz));
+                                    id(saved_tz_ok) = true;
+                                  }
+                                  #endif
+                              - script.execute: redraw
                               # Sleep is timed from the last completed render, not from boot
                               - script.execute: idle_sleep
                             on_error:
@@ -563,7 +801,7 @@ script:
                                   id(data_state) = 2;
                                   id(fetch_pending) = false;
                                   id(fetch_retry) = 0;
-                              - component.update: epaper
+                              - script.execute: redraw
                               - script.execute: idle_sleep
                         # The action completes when the request is sent, not when
                         # the response arrives. Wait for it here; if nothing came
@@ -584,6 +822,21 @@ script:
                               # and corrupts its queue (StoreProhibited crash on dev).
                               - delay: 250ms
                               - script.execute: fetch_events
+                            else:
+                              - if:
+                                  condition:
+                                    lambda: "return id(fetch_pending);"
+                                  then:
+                                    # Retries exhausted: draw what we have, flagged offline
+                                    - logger.log:
+                                        level: WARN
+                                        format: "fetch: no response after retries - drawing offline"
+                                    - lambda: |-
+                                        id(data_state) = 2;
+                                        id(fetch_pending) = false;
+                                        id(fetch_retry) = 0;
+                                    - script.execute: redraw
+                                    - script.execute: idle_sleep
 
   # Inactivity timer: sleeps "Awake time" seconds after boot / the last
   # button press. Never sleeps before "Confirm setup" has been pressed,
@@ -638,9 +891,43 @@ script:
                               if (isnan(mins) || mins < 1)
                                 mins = 30;
                               uint32_t sleep_ms = (uint32_t) (mins * 60000);
-                              // A refresh wake that would land inside the downtime
-                              // window sleeps through to the window's end instead.
-                              const auto now = id(ha_time).now();
+                              auto now = id(ha_time).now();
+                              if (now.is_valid()) {
+                                // Wake early for whatever changes what is on screen: just
+                                // after today's next event start / end, and just after
+                                // midnight (the new day). The refresh interval is the cap.
+                                const int now_s = now.hour * 3600 + now.minute * 60 + now.second;
+                                const std::string now19 = now.strftime("%Y-%m-%d %H:%M:%S");
+                                const std::string today = now19.substr(0, 10);
+                                // Seconds since midnight from "YYYY-MM-DD HH:MM:SS"
+                                auto secs = [](const std::string &t) -> int {
+                                  return ((t[11] - '0') * 10 + (t[12] - '0')) * 3600 +
+                                         ((t[14] - '0') * 10 + (t[15] - '0')) * 60 + (t[17] - '0') * 10 + (t[18] - '0');
+                                };
+                                int next_s = (int) (sleep_ms / 1000);
+                                // On a DST change day this may land an hour off; that
+                                // self-corrects (the date is unchanged so the redraw is
+                                // skipped, and the next sleep re-aims at midnight).
+                                next_s = std::min(next_s, 86400 - now_s + 60);
+                                for (size_t i = 0; i < id(cal_starts).size(); i++) {
+                                  const std::string &s = id(cal_starts)[i];
+                                  const std::string &e = id(cal_ends)[i];
+                                  if (s.size() <= 10 || s.compare(0, 10, today) != 0)
+                                    continue;
+                                  if (s.compare(0, 19, now19) > 0) {
+                                    next_s = std::min(next_s, secs(s) - now_s + 60);
+                                  } else if (e.size() > 10 && e.compare(0, 10, today) == 0 && e.compare(0, 19, now19) > 0) {
+                                    // In progress: wake just after it ends
+                                    next_s = std::min(next_s, secs(e) - now_s + 60);
+                                  }
+                                }
+                                if ((uint32_t) next_s * 1000 < sleep_ms) {
+                                  ESP_LOGI("calendar", "next wake aligned to an event boundary / midnight in %ds", next_s);
+                                  sleep_ms = (uint32_t) next_s * 1000;
+                                }
+                              }
+                              // A wake that would land inside the downtime window
+                              // sleeps through to the window's end instead.
                               const int start_s = id(downtime_start).hour * 3600 +
                                                   id(downtime_start).minute * 60 + id(downtime_start).second;
                               const int end_s = id(downtime_end).hour * 3600 +

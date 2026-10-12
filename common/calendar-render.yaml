@@ -151,12 +151,20 @@
     return;
   }
 
+  // Failed and nothing cached to fall back on
+  if (id(data_state) == 2 && id(fetched_at) == 0) {
+    it.print(width / 2, height / 2, id(font_header), black, TextAlign::CENTER, "Could not reach Home Assistant");
+    return;
+  }
+
   if (id(data_state) == 0 || !now.is_valid()) {
     it.print(width / 2, height / 2, id(font_header), black, TextAlign::CENTER, "Loading calendar...");
     return;
   }
 
   const int days = portrait ? 1 : id(view_days);
+  const std::string today_key = now.strftime("%Y-%m-%d");
+  const std::string now19 = now.strftime("%Y-%m-%d %H:%M:%S");
   const time_t base_ts = now.timestamp + (time_t) id(day_offset) * 86400;
 
   // ---- Header ----
@@ -194,8 +202,22 @@
   } else {
     it.printf(width - 16, 8, id(font_day), black, TextAlign::TOP_RIGHT, "%s   %s", view_label, batt.c_str());
   }
-  it.printf(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT, "updated %s",
-            fmt_time(now.hour, now.minute).c_str());
+  // When the events on screen were fetched, with the weekday if not today
+  auto fetched = ESPTime::from_epoch_local(id(fetched_at));
+  std::string fetched_text = fmt_time(fetched.hour, fetched.minute);
+  if (fetched.strftime("%Y-%m-%d") != today_key)
+    fetched_text = fetched.strftime("%a ") + fetched_text;
+  if (id(data_state) == 2) {
+    // Offline: inverted, so it stands out from the normal stamp
+    const std::string offline = "OFFLINE - data from " + fetched_text;
+    int bx, by, bw, bh;
+    it.get_text_bounds(width - 16, 36, offline.c_str(), id(font_small), TextAlign::TOP_RIGHT, &bx, &by, &bw, &bh);
+    // 2px higher with 2px vertical padding, clear of the header rule
+    it.filled_rectangle(bx - 4, by - 2, bw + 8, bh + 4, black);
+    it.print(width - 16, 36, id(font_small), Color::WHITE, TextAlign::TOP_RIGHT, offline.c_str());
+  } else {
+    it.printf(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT, "updated %s", fetched_text.c_str());
+  }
   const int header_h = portrait ? 108 : 56;
   it.line(0, header_h, width, header_h, black);
 
@@ -218,8 +240,10 @@
       if (d > 0)
         it.line(x, top, x, height - 24, black);
     }
+    // Days outside the fetched range are unknown, not empty
+    const bool in_range = id(cal_from).empty() || (day_key >= id(cal_from) && day_key < id(cal_to));
     int shown = 0, hidden = 0;
-    for (size_t i = 0; i < id(cal_starts).size(); i++) {
+    for (size_t i = 0; in_range && i < id(cal_starts).size(); i++) {
       const std::string &s = id(cal_starts)[i];
       const std::string &e = id(cal_ends)[i];
       const bool all_day = s.size() == 10;
@@ -250,6 +274,10 @@
       const int indent = stack_time ? 12 : prefix_w;
       const int max_title_lines = wrap_titles ? (stack_time ? 2 : 3) : 1;
       auto title_lines = wrap_text(ev_font, body, avail - indent, max_title_lines);
+      // In progress now (today's column only): a solid bar in the left
+      // margin next to the first line. Same condition as the redraw hash.
+      if (!all_day && day_key == today_key && s.compare(0, 19, now19) <= 0 && e.compare(0, 19, now19) > 0)
+        it.filled_rectangle(x + 2, y + 3, 4, row_h - 6, black);
       if (stack_time) {
         it.print(x + 8, y, ev_font, black, prefix.c_str());
         y += row_h;
@@ -270,7 +298,10 @@
     if (hidden > 0) {
       it.printf(x + 8, y, note_font, black, "+%d more", hidden);
     } else if (shown == 0) {
-      it.print(x + 8, y, note_font, black, days == 1 ? "No events" : "-");
+      if (in_range)
+        it.print(x + 8, y, note_font, black, days == 1 ? "No events" : "-");
+      else
+        it.print(x + 8, y, note_font, black, days == 1 ? "Not available offline" : "?");
     }
   }
 
