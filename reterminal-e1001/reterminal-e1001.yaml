@@ -30,6 +30,19 @@ packages:
   # The device-agnostic calendar logic, fonts included
   paper_calendar: !include ../common/paper-calendar.yaml
 
+# The last page of the setup wizard, after the common package's pages
+# (package lists come first): the "Confirm setup" button.
+api:
+  wizard:
+    pages:
+      - title: Finish setup
+        description: >-
+          Press Confirm setup to start the sleep cycle. Then, in the ESPHome
+          integration, press Configure and allow the device to perform Home
+          Assistant actions, which it needs to fetch your calendars.
+        entities:
+          - id: confirm_setup
+
 esp32:
   variant: esp32s3
   flash_size: 32MB

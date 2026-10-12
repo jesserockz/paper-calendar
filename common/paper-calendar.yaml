@@ -17,17 +17,28 @@
 # First-boot setup (device stays awake until this is done):
 # 1. Connect it to Wi-Fi (Improv over USB or Bluetooth, or the fallback
 #    hotspot) - until then it shows a Wi-Fi setup screen.
-# 2. ESPHome integration -> this device -> Configure ->
-#    tick "Allow the device to perform Home Assistant actions".
-# 3. Fill in the "Calendars" text entity with a comma separated list
-#    of calendar entity ids (e.g. "calendar.family, calendar.work").
-# 4. Optionally adjust the other options (see below).
-# 5. Press the "Confirm setup" button - only then does the device
-#    start its normal sleep cycle.
+# 2. Add it to Home Assistant. From Home Assistant 2026.11, adding it
+#    opens the setup wizard (api: wizard: below): pick up to four
+#    calendars, adjust the display and sleep options, and press
+#    "Confirm setup" on the last page. Older Home Assistant versions skip
+#    the wizard: fill in the "Calendars" text entity instead (a comma
+#    separated list, e.g. "calendar.family, calendar.work"), adjust the
+#    options and press "Confirm setup" on the device page.
+# 3. ESPHome integration -> this device -> Configure ->
+#    tick "Allow the device to perform Home Assistant actions". The
+#    wizard cannot set this: it is a Home Assistant integration option,
+#    not something the device can describe.
+# Only once "Confirm setup" has been pressed and at least one calendar is
+# picked does the device start its normal sleep cycle.
 #
 # Everything user-facing is a configuration entity on the device itself -
 # no HA helpers or YAML edits needed:
-#   - Calendars (text): comma separated calendar entity ids
+#   - Calendar 1 to 4 (wizard inputs): calendars picked in the wizard.
+#     Home Assistant keeps the picks and sends them on every connection;
+#     they are not entities and only exist in the wizard.
+#   - Calendars (text): comma separated calendar entity ids, shown as
+#     well as the wizard calendars (for older Home Assistant versions, or
+#     more than four calendars)
 #   - Ignored events (text): comma separated event titles to hide
 #   - Long event names (select): truncate with "~" or word-wrap
 #   - Battery display (select): Percentage / Voltage / Both
@@ -42,6 +53,11 @@
 #     (buttons still wake the device); equal times disable the window
 #   - Prevent sleep (switch): keeps the device awake, e.g. for OTA updates
 #   - Confirm setup (button): finishes first-boot setup
+#
+# The wizard's pages come from this package and then from the device
+# config (package lists are concatenated, the package's first). The
+# device config adds the last page: any device-specific options, then the
+# "Confirm setup" button (see the README).
 #
 # Device hooks - scripts every device config defines (this package calls
 # them but never defines them, so a missing hook fails validation):
@@ -82,9 +98,10 @@ esphome:
   # Shared firmware: every unit gets a unique hostname. A personal
   # overlay (see the README) can override this to false.
   name_add_mac_suffix: true
-  # 2026.9.0: epaper_spi seeed-reterminal-e1001 model and deep_sleep
-  # per-pin on_wake (calendar.get_events action responses need 2025.10.0)
-  min_version: 2026.9.0
+  # 2026.10.0: the api setup wizard (and improv_ble, the new name of
+  # esp32_improv, in common/factory.yaml). 2026.9.0 brought the epaper_spi
+  # seeed-reterminal-e1001 model and deep_sleep per-pin on_wake.
+  min_version: 2026.10.0
   # List form, so devices can add their own entries
   includes:
     - <esp_sleep.h>
@@ -125,6 +142,10 @@ esphome:
                 b = t + 1;
               }
             };
+            // The Calendars text entity only, not the wizard's calendars:
+            // Home Assistant sends those after it connects, so at boot they
+            // are always empty. A wizard change is followed by a fetch that
+            // rewrites the cache.
             const std::string cfg = str_sprintf(
                 "%u", (unsigned) fnv1_hash(id(calendar_ids).state + "|" + id(ignore_events).state));
             size_t nl = text.find('\n');
@@ -178,6 +199,70 @@ api:
   # No fixed key: Home Assistant provisions one when the device is adopted
   # and the device stores it in flash. A personal overlay can pin a key.
   encryption: {}
+  # First-boot setup wizard, shown by Home Assistant 2026.11 and newer
+  # when the device is added (older versions ignore it). Entities are the
+  # device's own config entities, set live while the device is awake;
+  # inputs are Home Assistant entity pickers. The device config appends
+  # the last page, with the "Confirm setup" button.
+  wizard:
+    pages:
+      - title: Calendars
+        description: >-
+          Pick the calendars to show. Their events are merged into one
+          list. The device stays awake until you press Confirm setup on
+          the last page.
+        inputs:
+          - id: calendar_1
+            description: Calendar
+            target:
+              entity:
+                - domain: calendar
+          - id: calendar_2
+            description: Another calendar (optional)
+            target:
+              entity:
+                - domain: calendar
+          - id: calendar_3
+            description: Another calendar (optional)
+            target:
+              entity:
+                - domain: calendar
+          - id: calendar_4
+            description: Another calendar (optional)
+            target:
+              entity:
+                - domain: calendar
+        entities:
+          - id: calendar_ids
+            description: >-
+              More calendars (optional): comma separated entity ids, e.g.
+              calendar.family, calendar.work
+          - id: ignore_events
+            description: >-
+              Event titles to hide (optional), comma separated, e.g.
+              Out of office, Lunch
+      - title: Display
+        entities:
+          - id: title_overflow
+            description: Cut long event names with ~ or wrap them onto more lines
+          - id: clock_12h
+            description: Show times as 6:30pm instead of 18:30
+          - id: battery_display_mode
+            description: The battery readout in the header
+      - title: Battery life
+        description: >-
+          The device sleeps between refreshes. A button press always wakes
+          it.
+        entities:
+          - id: refresh_interval
+            description: Minutes asleep between display refreshes
+          - id: awake_time
+            description: Seconds awake after a refresh or the last button press
+          - id: downtime_start
+            description: >-
+              No refreshes between these two times, e.g. 22:00 to 06:30
+              overnight. Equal times refresh all day.
+          - id: downtime_end
 
 ota:
   - platform: esphome
@@ -233,9 +318,17 @@ globals:
     type: bool
     restore_value: true
     initial_value: "false"
-  # Set by the "Confirm setup" button. Until then the device never
-  # sleeps, so there is time to fill in the entities below.
+  # Set once "Confirm setup" has been pressed and a calendar is picked.
+  # Until then the device never sleeps, so there is time to go through
+  # the wizard or fill in the entities below.
   - id: setup_done
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  # "Confirm setup" was pressed before any calendar was picked (Home
+  # Assistant may send the wizard's calendars only as the wizard ends).
+  # Setup then completes as soon as a calendar arrives.
+  - id: setup_confirmed
     type: bool
     restore_value: true
     initial_value: "false"
@@ -275,6 +368,10 @@ globals:
   - id: room_humidity
     type: float
     initial_value: "NAN"
+  # The calendar_list value the last fetch asked for, so a change (e.g.
+  # a wizard pick) triggers a refetch
+  - id: fetched_calendars
+    type: std::string
   # Fetched events, kept sorted by start. Parallel vectors: ISO start,
   # ISO end, title. All-day events have a 10-character date-only start.
   - id: cal_starts
@@ -531,19 +628,88 @@ button:
     name: Confirm setup
     entity_category: config
     on_press:
+      # Pick up a Calendars text entity edit from the last 2s
+      - component.update: calendar_list
       - if:
           condition:
-            lambda: "return !id(calendar_ids).state.empty();"
+            lambda: "return !id(calendar_list).state.empty();"
           then:
-            - lambda: "id(setup_done) = true;"
-            - script.execute: feedback_ok
-            - script.execute: fetch_events
-            - script.execute: idle_sleep
+            - script.execute: finish_setup
           else:
-            - logger.log: "Set the Calendars text entity before confirming setup"
+            # Completes on its own once a calendar is picked (see calendar_list)
+            - lambda: "id(setup_confirmed) = true;"
+            - logger.log: "Setup confirmed - waiting for a calendar (wizard or Calendars text entity)"
             - script.execute: feedback_error
 
+text_sensor:
+  # Every calendar to fetch: the wizard's Calendar 1 to 4, then the
+  # Calendars text entity, comma separated and without duplicates. Polled,
+  # since the wizard has no trigger: Home Assistant sends its calendars
+  # after each connection, or whenever the user changes them.
+  - platform: template
+    id: calendar_list
+    internal: true
+    update_interval: 2s
+    lambda: |-
+      std::vector<std::string> ids;
+      auto add = [&](const std::string &raw) {
+        size_t pos = 0;
+        while (pos <= raw.size()) {
+          size_t comma = raw.find(',', pos);
+          if (comma == std::string::npos)
+            comma = raw.size();
+          size_t b = pos, e = comma;
+          while (b < e && raw[b] == ' ')
+            b++;
+          while (e > b && raw[e - 1] == ' ')
+            e--;
+          std::string item = raw.substr(b, e - b);
+          if (!item.empty() && std::find(ids.begin(), ids.end(), item) == ids.end())
+            ids.push_back(std::move(item));
+          pos = comma + 1;
+        }
+      };
+      for (auto *input : {id(calendar_1), id(calendar_2), id(calendar_3), id(calendar_4)}) {
+        if (input->has_entity_id())
+          add(std::string(input->entity_id().c_str()));
+      }
+      add(id(calendar_ids).state);
+      std::string out;
+      for (const auto &item : ids) {
+        if (!out.empty())
+          out += ", ";
+        out += item;
+      }
+      return out;
+    on_value:
+      - if:
+          condition:
+            lambda: "return !x.empty() && id(setup_confirmed) && !id(setup_done);"
+          then:
+            - script.execute: finish_setup
+      # Refetch when the calendars change, e.g. picked in the wizard while
+      # the setup screen is up. A running fetch reads them itself.
+      - if:
+          condition:
+            and:
+              - lambda: "return x != id(fetched_calendars);"
+              - not:
+                  script.is_running: fetch_events
+          then:
+            - script.execute: idle_sleep
+            - script.execute: fetch_events
+
 script:
+  # "Confirm setup" with a calendar picked: setup is done, start sleeping
+  - id: finish_setup
+    then:
+      - lambda: |-
+          id(setup_done) = true;
+          id(setup_confirmed) = true;
+      - script.execute: feedback_ok
+      - script.execute: fetch_events
+      - script.execute: idle_sleep
+
   # ---- Button actions ----
   # Called from the device's button binary_sensors. Each restarts the
   # idle timer, gives press feedback, adjusts the view and refetches. A
@@ -640,7 +806,7 @@ script:
                   id(temperature_unit).current_option().str().c_str(), isnan(room_c) ? -999L : lroundf(room_c),
                   isnan(room_h) ? -999L : lroundf(room_h / 10));
               std::string key = str_sprintf("%d|%s|%d|%d|%d|%d|%s|%d|%d|%d|%d|%s|%s|%d|%s|%s|", id(wifi_setup),
-                                            id(ap_ssid).c_str(), id(calendar_ids).state.empty(), id(setup_done),
+                                            id(ap_ssid).c_str(), id(calendar_list).state.empty(), id(setup_done),
                                             id(data_state), now.is_valid(), today.c_str(), id(day_offset),
                                             id(view_days), id(portrait_mode), id(clock_12h).state,
                                             id(title_overflow).current_option().str().c_str(), bmode.c_str(),
@@ -696,10 +862,20 @@ script:
                 condition:
                   lambda: "return id(ha_time).now().is_valid();"
                 timeout: 15s
+            # Home Assistant sends the wizard's calendars right after it
+            # connects; give them a moment (calendar_list polls every 2s)
+            # before showing the setup screen.
+            - component.update: calendar_list
+            - wait_until:
+                condition:
+                  lambda: "return !id(calendar_list).state.empty();"
+                timeout: 5s
+            - component.update: calendar_list
             - lambda: |-
+                id(fetched_calendars) = id(calendar_list).state;
                 ESP_LOGI("calendar", "fetch: api=%s time=%s calendars='%s' offset=%d days=%d",
                          YESNO(api::global_api_server->is_connected()), YESNO(id(ha_time).now().is_valid()),
-                         id(calendar_ids).state.c_str(), id(day_offset), id(view_days));
+                         id(fetched_calendars).c_str(), id(day_offset), id(view_days));
             - if:
                 condition:
                   not:
@@ -713,7 +889,7 @@ script:
                 else:
                   - if:
                       condition:
-                        lambda: "return id(calendar_ids).state.empty();"
+                        lambda: "return id(fetched_calendars).empty();"
                       then:
                         # Not configured yet - the display shows the setup screen.
                         - logger.log: "fetch: calendars not set - drawing setup screen"
@@ -725,7 +901,7 @@ script:
                         - homeassistant.action:
                             action: calendar.get_events
                             data:
-                              entity_id: !lambda "return id(calendar_ids).state;"
+                              entity_id: !lambda "return id(fetched_calendars);"
                               start_date_time: !lambda |-
                                 auto day = ESPTime::from_epoch_local(
                                     id(ha_time).now().timestamp + (time_t) id(day_offset) * 86400);
@@ -816,6 +992,7 @@ script:
                                                    .strftime("%Y-%m-%d");
                                   // Only today-anchored ranges are cached: every wake starts on today
                                   if (id(day_offset) == 0) {
+                                    // Same key as the on_boot cache load (Calendars text entity only)
                                     const std::string cfg = str_sprintf(
                                         "%u", (unsigned) fnv1_hash(id(calendar_ids).state + "|" + id(ignore_events).state));
                                     const size_t cap = id(cal_cache).size();
@@ -898,8 +1075,9 @@ script:
                                     - script.execute: idle_sleep
 
   # Inactivity timer: sleeps "Awake time" seconds after boot / the last
-  # button press. Never sleeps before "Confirm setup" has been pressed,
-  # while Wi-Fi is not yet set up, or while the "Prevent sleep" switch is on.
+  # button press. Never sleeps before setup is done ("Confirm setup"
+  # pressed with a calendar picked), while Wi-Fi is not yet set up, or
+  # while the "Prevent sleep" switch is on.
   - id: idle_sleep
     mode: restart
     then:
