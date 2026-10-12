@@ -22,10 +22,11 @@ Each supported device has its own folder with its own prebuilt firmware, install
 - Deep sleep between refreshes with a configurable interval, awake time, and an overnight downtime window.
 - Buttons wake the device *and* perform their action: page through the days or switch the view. On the reTerminal, a short beep confirms the press registered, since e-paper takes a few seconds to redraw (the M5Paper has no buzzer).
 - All-day events, word-wrap or truncation for long titles, an ignore list for events you do not want shown, 12/24-hour clock, and a battery readout (percentage, voltage, or both) in the header.
-- Unchanged screens are not redrawn: if a refresh finds the same events, day and battery level (the battery is bucketed), the display is left as is, which saves power and avoids flicker. The "updated HH:MM" stamp in the header is the time the data on screen was fetched, so when nothing changed the display (and its stamp) stays as it was.
+- Unchanged screens are not redrawn: if a refresh finds the same events, day, battery level and room climate (both bucketed, to whole degrees and 10% steps), the display is left as is, which saves power and avoids flicker. The "updated HH:MM" stamp in the header is the time the data on screen was fetched, so when nothing changed the display (and its stamp) stays as it was.
 - Wakes are aligned to the day: besides the refresh interval, the device wakes shortly after today's events start or end and just after midnight (still respecting the downtime window), and an event in progress is marked with a solid bar in the left margin.
 - Button presses while awake use fast partial refreshes, with a full refresh every 10th update; the first refresh after every wake is always a full one, and a timed wake after partial refreshes does one full clean to clear ghosting.
 - If Home Assistant cannot be reached, the device draws the last known events from a cache kept in flash (surviving deep sleep and power loss), with an inverted **OFFLINE - data from HH:MM** note in the header. Days the cache does not cover show "Not available offline".
+- The room temperature (and optionally humidity) in the header, in Celsius or Fahrenheit, from the device's onboard sensor (an SHT40 on the reTerminal, an SHT30 on the M5Paper). It is read once per wake, right after waking while the board is still cool.
 - Everything is configured through entities on the device itself - no Home Assistant helpers, template sensors, or YAML edits needed.
 
 ![3-day view](static/screenshots/three-day-view.png)
@@ -71,6 +72,8 @@ All of these live on the device and persist across deep sleep and reboots:
 | Ignored events       | Text   | Comma separated event titles to hide, matched case-insensitively against the full title, e.g. `Out of office, Lunch`.                                                                   |
 | Long event names     | Select | `Truncate` cuts long titles with `~`; `Word wrap` wraps them onto up to three lines at word boundaries.                                                                                 |
 | Battery display      | Select | Header battery readout: `Percentage`, `Voltage`, or `Both`.                                                                                                                             |
+| Climate display      | Select | Header room climate readout: `Off`, `Temperature`, or `Temperature and humidity`. Shows nothing on a device without a room sensor.                                                      |
+| Temperature unit     | Select | Header temperature in `Celsius` or `Fahrenheit` (the Temperature sensor itself always reports Celsius).                                                                                 |
 | Orientation          | Select | M5Paper only: `Landscape` (rocker on top; day and 3-day views) or `Portrait` (rocker on the right; a single day in larger text).                                                        |
 | Refresh interval     | Number | Longest sleep between refreshes in minutes (5 to 720); the device also wakes shortly after events start or end today, and just after midnight.                                          |
 | Awake time           | Number | Seconds the device stays awake after boot or the last button press (10 to 300).                                                                                                         |
@@ -79,7 +82,7 @@ All of these live on the device and persist across deep sleep and reboots:
 | Prevent sleep        | Switch | Keeps the device awake, e.g. while you install an OTA update.                                                                                                                           |
 | Confirm setup        | Button | Finishes first-boot setup; the device refuses to sleep until this has been pressed (and Calendars is filled in).                                                                        |
 
-The device also exposes **Battery** (%), **Battery voltage**, an **Awake** binary sensor (Home Assistant keeps the last state while the device sleeps instead of marking it unavailable), and - on the factory firmware - a **Firmware** update entity that offers new releases from this repository.
+The device also exposes **Battery** (%), **Battery voltage**, the room **Temperature** (degrees C) and **Humidity** (%) from its onboard sensor, an **Awake** binary sensor (Home Assistant keeps the last state while the device sleeps instead of marking it unavailable), and - on the factory firmware - a **Firmware** update entity that offers new releases from this repository.
 
 ## Buttons
 
@@ -177,6 +180,7 @@ Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reter
 - the `esp32:` block, and a `logger:` override if the USB serial is not the default port;
 - the display with `id: epaper` and `lambda: !include ../common/calendar-render.yaml`;
 - the battery voltage sensor with `id: battery_voltage`, in volts at the battery (the common package derives the **Battery** percentage from it);
+- optionally, a room temperature / humidity sensor with `update_interval: never`, whose `on_value` sets the common `room_temperature` (degrees C) / `room_humidity` (%) globals for the header readout. Without one, the globals stay `NAN` and the header shows no readout;
 - the wake sources under `deep_sleep:` (the common package sets its `id: sleeper`), with `on_wake` calling the `wake_page_back`, `wake_page_forward` or `wake_cycle_view` scripts;
 - the buttons, calling the `action_page_back`, `action_page_forward`, `action_cycle_view` and `action_today` scripts;
 - optionally, a `view_button` substitution naming the view / back-to-today button for the footer hint on the display (defaults to `middle`);
@@ -190,10 +194,11 @@ Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reter
 | `feedback_ok`       | When **Confirm setup** is accepted                            | Buzzer chime                            |
 | `feedback_error`    | When **Confirm setup** is refused (Calendars empty)           | Buzzer double beep                      |
 | `read_battery`      | Once per wake, from `on_boot`; must update `battery_voltage`  | Powers the divider, samples, powers off |
+| `read_climate`      | Once per wake, from `on_boot`; sets the `room_*` globals      | Updates the SHT4x sensor                |
 | `before_deep_sleep` | Right before `deep_sleep.enter`, which waits for it to finish | Nothing (`then: []`)                    |
 
 The common package assumes the display's first update after boot is a full refresh (true for `epaper_spi` and `it8951` with `full_update_every`), which is how ghosting from partial refreshes is cleared: after partial refreshes, the next timed wake redraws once even if nothing changed.
 
-A device without a buzzer defines the `feedback_*` scripts as `then: []`. Keep any `esphome: on_boot:` in list form: package lists are concatenated, but a dict-form `on_boot` would replace the common one.
+A device without a buzzer defines the `feedback_*` scripts as `then: []`, and one without a room sensor defines `read_climate` the same way. Keep any `esphome: on_boot:` in list form: package lists are concatenated, but a dict-form `on_boot` would replace the common one.
 
 `<device>/<device>.factory.yaml` includes the device config and `../common/factory.yaml` with the folder name as the `device` var (used for the dashboard import URL and the `firmware/<device>.manifest.json` update manifest), and carries the `esphome: project:` block itself, since the build workflow stamps the release version into the file it builds. Then add a build group for the folder in [.github/workflows/build.yml](.github/workflows/build.yml), an install button in [static/index.md](static/index.md), and a row in [Supported devices](#supported-devices).

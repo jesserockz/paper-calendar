@@ -31,6 +31,9 @@
 #   - Ignored events (text): comma separated event titles to hide
 #   - Long event names (select): truncate with "~" or word-wrap
 #   - Battery display (select): Percentage / Voltage / Both
+#   - Climate display (select): Off / Temperature / Temperature and
+#     humidity, from the device's room sensor (if it has one)
+#   - Temperature unit (select): Celsius / Fahrenheit
 #   - Refresh interval (number): the longest sleep between refreshes (the
 #     device also wakes shortly after events start / end, and after midnight)
 #   - Awake time (number): seconds awake after boot / the last button press
@@ -47,6 +50,10 @@
 #     refused). E.g. a buzzer chirp; no-ops on a device without one.
 #   - read_battery: refresh the battery_voltage sensor (the device's ADC
 #     sensor, in volts at the battery). Run once per wake.
+#   - read_climate: read the device's room temperature / humidity sensor
+#     into the room_temperature / room_humidity globals. Run once per
+#     wake; empty on a device without one (the header then shows no
+#     climate readout).
 #   - before_deep_sleep: runs, and is waited for, right before
 #     deep_sleep.enter. E.g. latch a power-hold GPIO; empty if not needed.
 # And the ids this package expects the device to provide:
@@ -160,6 +167,7 @@ esphome:
             if (id(view_days) > 3)
               id(view_days) = 3;
         - script.execute: read_battery
+        - script.execute: read_climate
         - script.execute: idle_sleep
         - script.execute: fetch_events
 
@@ -257,6 +265,16 @@ globals:
   - id: fetch_retry
     type: int
     initial_value: "0"
+  # Room temperature (degrees C) and relative humidity (%) for the header,
+  # set by the device's read_climate hook. Deliberately not restored: NAN
+  # (no reading this wake, or no sensor) hides the readout rather than
+  # showing a stale value.
+  - id: room_temperature
+    type: float
+    initial_value: "NAN"
+  - id: room_humidity
+    type: float
+    initial_value: "NAN"
   # Fetched events, kept sorted by start. Parallel vectors: ISO start,
   # ISO end, title. All-day events have a 10-character date-only start.
   - id: cal_starts
@@ -475,6 +493,38 @@ select:
     on_value:
       - script.execute: fetch_events
 
+  # Header room climate readout, from the device's room sensor. Nothing is
+  # shown on a device without one, whatever this is set to.
+  - platform: template
+    id: climate_display_mode
+    name: Climate display
+    entity_category: config
+    icon: mdi:home-thermometer
+    options:
+      - "Off"
+      - Temperature
+      - Temperature and humidity
+    initial_option: Temperature
+    optimistic: true
+    restore_value: true
+    # Refetch rather than redraw directly - see battery_display_mode
+    on_value:
+      - script.execute: fetch_events
+
+  - platform: template
+    id: temperature_unit
+    name: Temperature unit
+    entity_category: config
+    icon: mdi:temperature-celsius
+    options:
+      - Celsius
+      - Fahrenheit
+    initial_option: Celsius
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.execute: fetch_events
+
 button:
   - platform: template
     id: confirm_setup
@@ -559,10 +609,10 @@ script:
 
   # Redraws the panel, unless what it would show is what it already shows.
   # The hash covers everything the render draws EXCEPT the "updated" stamp
-  # and the exact battery value: the stamp is excluded on purpose (otherwise
-  # every successful fetch would redraw), so a redraw that finds nothing
-  # changed leaves the old stamp on screen. The battery is bucketed so small
-  # drifts do not force a redraw. An event "in progress" flag is included
+  # and the exact battery and climate values: the stamp is excluded on
+  # purpose (otherwise every successful fetch would redraw), so a redraw
+  # that finds nothing changed leaves the old stamp on screen. The battery
+  # and climate are bucketed so small drifts do not force a redraw. An event "in progress" flag is included
   # because the render marks those (same condition as the render).
   - id: redraw
     then:
@@ -581,12 +631,21 @@ script:
                 const float p = id(battery_pct).state;
                 batt_bucket = isnan(p) ? -1 : (int) lroundf(p / 10);
               }
-              std::string key = str_sprintf("%d|%s|%d|%d|%d|%d|%s|%d|%d|%d|%d|%s|%s|%d|%s|%s", id(wifi_setup),
+              // Room climate, bucketed like the battery: whole degrees C and
+              // 10% RH, so the 0.1 degree jitter between wakes does not redraw
+              const float room_c = id(room_temperature);
+              const float room_h = id(room_humidity);
+              const std::string climate_key = str_sprintf(
+                  "%s|%s|%ld|%ld", id(climate_display_mode).current_option().str().c_str(),
+                  id(temperature_unit).current_option().str().c_str(), isnan(room_c) ? -999L : lroundf(room_c),
+                  isnan(room_h) ? -999L : lroundf(room_h / 10));
+              std::string key = str_sprintf("%d|%s|%d|%d|%d|%d|%s|%d|%d|%d|%d|%s|%s|%d|%s|%s|", id(wifi_setup),
                                             id(ap_ssid).c_str(), id(calendar_ids).state.empty(), id(setup_done),
                                             id(data_state), now.is_valid(), today.c_str(), id(day_offset),
                                             id(view_days), id(portrait_mode), id(clock_12h).state,
                                             id(title_overflow).current_option().str().c_str(), bmode.c_str(),
-                                            batt_bucket, id(cal_from).c_str(), id(cal_to).c_str());
+                                            batt_bucket, id(cal_from).c_str(), id(cal_to).c_str()) +
+                                climate_key;
               for (size_t i = 0; i < id(cal_starts).size(); i++) {
                 const std::string &s = id(cal_starts)[i];
                 const std::string &e = id(cal_ends)[i];

@@ -98,6 +98,13 @@ script:
       - component.update: battery_voltage
       - output.turn_off: battery_meas_enable
 
+  # One room temperature / humidity reading per wake, while the board is
+  # still cool from deep sleep. The sensor's on_value sets the globals the
+  # header reads.
+  - id: read_climate
+    then:
+      - component.update: room_climate
+
   # Nothing to latch before sleeping
   - id: before_deep_sleep
     then: []
@@ -170,6 +177,30 @@ sensor:
     update_interval: never
     filters:
       - multiply: 2.0
+
+  # Onboard Sensirion SHT4x (SHT40) temperature / humidity sensor at the
+  # default address 0x44 (per Seeed wiki); always powered.
+  - platform: sht4x
+    id: room_climate
+    # Read on demand by the read_climate script (once per wake)
+    update_interval: never
+    temperature:
+      name: Temperature
+      on_value:
+        - lambda: "id(room_temperature) = x;"
+    humidity:
+      name: Humidity
+      on_value:
+        - lambda: "id(room_humidity) = x;"
+
+# Onboard I2C bus: the SHT4x and the PCF8563 RTC (unused here). GPIO19 /
+# GPIO20 are the S3's USB-Serial-JTAG pins, so ESPHome warns about them;
+# this board wires them to I2C and logs over UART0 instead (see logger).
+i2c:
+  sda: GPIO19
+  scl: GPIO20
+  # Nothing to discover; skipping the scan keeps each wake short
+  scan: false
 
 spi:
   clk_pin: GPIO7
