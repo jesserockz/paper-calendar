@@ -38,12 +38,11 @@ improv_serial:
 
 # Wi-Fi provisioning over Bluetooth (e.g. from Home Assistant's discovered
 # devices), enabled at boot only when no credentials are saved - see the
-# on_boot entry above. In ESPHome 2026.9 the component is esp32_improv; it
-# is renamed improv_ble in the next release.
+# on_boot entry above.
 esp32_ble:
   enable_on_boot: false
 
-esp32_improv:
+improv_ble:
   authorizer: none
 
 # Used to pull OTA updates from GitHub releases

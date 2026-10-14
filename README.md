@@ -57,10 +57,17 @@ Once it is connected, it moves on to the Home Assistant setup screen:
 ![Setup screen](static/screenshots/setup-screen.png)
 
 1. Home Assistant discovers the device - add it via the **ESPHome** integration.
-2. On the device page, press **Configure** and tick **Allow the device to perform Home Assistant actions** (the device calls `calendar.get_events`, which needs this).
-3. Fill in the **Calendars** text entity with a comma separated list of calendar entity ids, e.g. `calendar.family, calendar.work`.
-4. Optionally adjust the other options below.
-5. Press the **Confirm setup** button. The display refreshes and the device starts its normal sleep cycle.
+2. Home Assistant 2026.11 and newer then open the device's setup wizard:
+   - **Calendars**: pick up to four calendars, and optionally type more calendar entity ids into **More calendars** and event titles to hide into **Ignored events**.
+   - **Display**: long event names, 12-hour time and the battery readout.
+   - **Battery life**: refresh interval, awake time and the overnight downtime window.
+   - **Orientation** (M5Paper only): landscape or portrait.
+   - **Finish setup**: press **Confirm setup**. The display refreshes and the device starts its normal sleep cycle.
+3. On the device page, press **Configure** and tick **Allow the device to perform Home Assistant actions** (the device calls `calendar.get_events`, which needs this). The wizard cannot cover this step: it is an option of the ESPHome integration, not of the device.
+
+Older Home Assistant versions do not show the wizard and add the device as usual. Then fill in the **Calendars** text entity with a comma separated list of calendar entity ids, e.g. `calendar.family, calendar.work`, adjust the other options below, and press the **Confirm setup** button on the device page.
+
+Either way, the device only starts sleeping once **Confirm setup** has been pressed *and* a calendar has been picked, in whichever order. Home Assistant keeps the wizard's calendars and sends them to the device every time it connects, so they are not shown as entities; change them from the device's wizard settings in Home Assistant. The **Calendars** text entity is shown as well, so it also works for more than four calendars.
 
 ## Configuration entities
 
@@ -68,7 +75,8 @@ All of these live on the device and persist across deep sleep and reboots:
 
 | Entity               | Type   | What it does                                                                                                                                                                            |
 |----------------------|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Calendars            | Text   | Comma separated calendar entity ids to show, e.g. `calendar.family, calendar.work`.                                                                                                     |
+| Calendar 1 to 4      | Wizard | The calendars picked in the setup wizard (Home Assistant 2026.11 and newer). Kept by Home Assistant and sent on every connection.                                                       |
+| Calendars            | Text   | Comma separated calendar entity ids to show, e.g. `calendar.family, calendar.work`, in addition to the wizard's calendars (it is also on the wizard's Calendars page).                  |
 | Ignored events       | Text   | Comma separated event titles to hide, matched case-insensitively against the full title, e.g. `Out of office, Lunch`.                                                                   |
 | Long event names     | Select | `Truncate` cuts long titles with `~`; `Word wrap` wraps them onto up to three lines at word boundaries.                                                                                 |
 | Battery display      | Select | Header battery readout: `Percentage`, `Voltage`, or `Both`.                                                                                                                             |
@@ -80,7 +88,7 @@ All of these live on the device and persist across deep sleep and reboots:
 | 12-hour time         | Switch | Show times as `6:30pm` instead of `18:30`.                                                                                                                                              |
 | Downtime start / end | Time   | Refresh wakes that would land inside this window are deferred to its end, e.g. 22:00 to 06:30 stops overnight refreshes. Buttons still wake the device. Equal times disable the window. |
 | Prevent sleep        | Switch | Keeps the device awake, e.g. while you install an OTA update.                                                                                                                           |
-| Confirm setup        | Button | Finishes first-boot setup; the device refuses to sleep until this has been pressed (and Calendars is filled in).                                                                        |
+| Confirm setup        | Button | Finishes first-boot setup (the wizard's last page); the device refuses to sleep until this has been pressed and a calendar has been picked.                                             |
 
 The device also exposes **Battery** (%), **Battery voltage**, the room **Temperature** (degrees C) and **Humidity** (%) from its onboard sensor, an **Awake** binary sensor (Home Assistant keeps the last state while the device sleeps instead of marking it unavailable), and - on the factory firmware - a **Firmware** update entity that offers new releases from this repository.
 
@@ -156,7 +164,7 @@ api:
 
 ## Development
 
-The configuration is plain ESPHome YAML (requires ESPHome 2026.9.0 or newer). Everything device-agnostic lives in [common/](common); each device folder holds only that device's hardware:
+The configuration is plain ESPHome YAML (requires ESPHome 2026.10.0 or newer, for the setup wizard; the build currently uses the 2026.10.0 beta). Everything device-agnostic lives in [common/](common); each device folder holds only that device's hardware:
 
 - [common/paper-calendar.yaml](common/paper-calendar.yaml) - the calendar itself: configuration entities, fetch / sleep / button logic, Wi-Fi setup, and the API, OTA, Wi-Fi and time setup. Every device includes it as a package, and every device uses the firmware name `paper-calendar`.
 - [common/factory.yaml](common/factory.yaml) - the web-installer extras: Improv Serial and Bluetooth provisioning, dashboard import, and GitHub-release OTA updates.
@@ -183,6 +191,7 @@ Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reter
 - optionally, a room temperature / humidity sensor with `update_interval: never`, whose `on_value` sets the common `room_temperature` (degrees C) / `room_humidity` (%) globals for the header readout. Without one, the globals stay `NAN` and the header shows no readout;
 - the wake sources under `deep_sleep:` (the common package sets its `id: sleeper`), with `on_wake` calling the `wake_page_back`, `wake_page_forward` or `wake_cycle_view` scripts;
 - the buttons, calling the `action_page_back`, `action_page_forward`, `action_cycle_view` and `action_today` scripts;
+- the last pages of the setup wizard under `api: wizard: pages:`: a page for any device-specific options (the M5Paper's **Orientation**), then a **Finish setup** page with the `confirm_setup` button. Package lists come first, so these follow the common pages;
 - optionally, a `view_button` substitution naming the view / back-to-today button for the footer hint on the display (defaults to `middle`);
 - optionally, portrait support: set the common `portrait_mode` global (and `view_days` to 1) and rotate the display, e.g. from a select like the M5Paper's **Orientation**. The render lambda then draws a single day in larger text, and `wake_cycle_view` jumps back to today instead of cycling the view;
 - these hook scripts, which the common package calls but never defines:
@@ -192,7 +201,7 @@ Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reter
 | `feedback_click`    | On a button or wake press                                     | Buzzer click                            |
 | `feedback_home`     | On the jump back to today                                     | Buzzer chirp                            |
 | `feedback_ok`       | When **Confirm setup** is accepted                            | Buzzer chime                            |
-| `feedback_error`    | When **Confirm setup** is refused (Calendars empty)           | Buzzer double beep                      |
+| `feedback_error`    | When **Confirm setup** waits for a calendar (none picked yet) | Buzzer double beep                      |
 | `read_battery`      | Once per wake, from `on_boot`; must update `battery_voltage`  | Powers the divider, samples, powers off |
 | `read_climate`      | Once per wake, from `on_boot`; sets the `room_*` globals      | Updates the SHT4x sensor                |
 | `before_deep_sleep` | Right before `deep_sleep.enter`, which waits for it to finish | Nothing (`then: []`)                    |

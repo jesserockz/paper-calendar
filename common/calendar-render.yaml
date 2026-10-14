@@ -25,7 +25,7 @@
   };
   ESP_LOGI("calendar", "render: %dx%d state=%d events=%u configured=%s",
            width, height, id(data_state), (unsigned) id(cal_starts).size(),
-           YESNO(!id(calendar_ids).state.empty()));
+           YESNO(!id(calendar_list).state.empty()));
 
   // Real pixel width of a string in a font - line budgets are measured,
   // not estimated from character counts
@@ -138,16 +138,22 @@
     return;
   }
 
-  // ---- First-boot setup screen ----
-  if (id(calendar_ids).state.empty()) {
-    it.print(width / 2, portrait ? 200 : 110, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
+  // ---- First-boot setup screen (no calendar picked yet) ----
+  // Once set up, an unreachable Home Assistant also means no wizard
+  // calendars (Home Assistant sends them on connect): keep the last
+  // events and the error note instead.
+  if (id(calendar_list).state.empty() && !(id(setup_done) && id(data_state) == 2)) {
+    it.print(width / 2, portrait ? 200 : 100, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
     // Landscape: one line per step, 45px apart. Portrait: steps wrap.
-    const int y = print_items(portrait ? 290 : 190, id(font_event_big), portrait ? 30 : 45, portrait ? 20 : 0,
-                              {"1. In Home Assistant, allow this device to perform actions",
-                               "2. Fill in the Calendars text entity (e.g. calendar.family)",
-                               "3. Pick a battery display style (optional)", "4. Press the Confirm setup button"});
-    it.print(width / 2, y + 30, id(font_small), black, TextAlign::CENTER,
-             "The device stays awake until setup is confirmed");
+    const int y = print_items(portrait ? 290 : 180, id(font_event_big), portrait ? 30 : 45, portrait ? 20 : 0,
+                              {"1. Add this device to Home Assistant",
+                               "2. Follow the setup wizard: pick your calendars",
+                               "3. Press Confirm setup on the last page",
+                               "4. Configure it: allow it to perform actions"});
+    // Home Assistant before 2026.11 shows no wizard
+    print_items(y + 20, id(font_small), 24, 0,
+                {"No wizard? Fill in the Calendars entity on the device page instead",
+                 "The device stays awake until setup is confirmed"});
     return;
   }
 

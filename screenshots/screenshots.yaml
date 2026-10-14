@@ -21,14 +21,14 @@ substitutions:
 
 esphome:
   name: paper-calendar-screenshots
-  min_version: 2026.9.0
+  min_version: 2026.10.0
   on_boot:
     priority: -100
     then:
       # Seed the same state the real device would have after a fetch:
       # demo events for today and the two following days.
       - lambda: |-
-          id(calendar_ids).publish_state("calendar.family, calendar.work");
+          id(calendar_list).publish_state("calendar.family, calendar.work");
           id(battery_voltage).publish_state(4.02f);
           id(battery_pct).publish_state(81.0f);
           id(room_temperature) = 21.5f;
@@ -101,7 +101,7 @@ esphome:
           id(fetched_at) = id(ha_time).now().timestamp;
       # Wi-Fi setup screen (shown while no Wi-Fi credentials are saved)
       - lambda: |-
-          id(calendar_ids).publish_state("");
+          id(calendar_list).publish_state("");
           id(wifi_setup) = true;
           id(wifi_qr).set_value("WIFI:T:nopass;S:" + id(ap_ssid) + ";;");
       - component.update: epaper
@@ -109,7 +109,7 @@ esphome:
           id: epaper
           filename: wifi-setup.bmp
       - lambda: "id(wifi_setup) = false;"
-      # First-boot setup screen (shown while Calendars is empty)
+      # First-boot setup screen (shown while no calendar is picked)
       - component.update: epaper
       - snapshot.take:
           id: epaper
@@ -169,12 +169,12 @@ globals:
   - id: cal_to
     type: std::string
 
-text:
+# The calendars picked in the wizard and the Calendars text entity
+text_sensor:
   - platform: template
-    id: calendar_ids
-    name: Calendars
-    mode: text
-    optimistic: true
+    id: calendar_list
+    internal: true
+    update_interval: never
 
 switch:
   - platform: template

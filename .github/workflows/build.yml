@@ -35,5 +35,6 @@ jobs:
           {"name": "reterminal-e1001", "files": ["reterminal-e1001/reterminal-e1001.factory.yaml"]},
           {"name": "m5paper", "files": ["m5paper/m5paper.factory.yaml"]}
         ]
-      esphome-version: 2026.9.1
+      # Beta: the setup wizard (api: wizard:) is new in 2026.10.0
+      esphome-version: 2026.10.0b2
       #### Modify above here to match your project ####
