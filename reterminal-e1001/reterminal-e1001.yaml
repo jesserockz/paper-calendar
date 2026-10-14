@@ -211,8 +211,11 @@ display:
     id: epaper
     # Pins (cs 10, dc 11, reset 12, busy 13) are the model defaults.
     model: seeed-reterminal-e1001
-    # Fast partial refreshes while navigating; every 10th update is a full
-    # refresh to clear ghosting.
+    # Button presses while awake get fast partial refreshes (UC8179 partial
+    # waveform); every 10th update is a full refresh. The first update after
+    # every boot (so every wake) is always a full refresh, which is why a
+    # button wake is not partial. The common package's `ghosted` logic gives
+    # the panel a full clean on the next timed wake after partial refreshes.
     full_update_every: 10
     # Redrawn from the fetch script; never on a timer.
     update_interval: never

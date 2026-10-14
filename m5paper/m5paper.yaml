@@ -260,7 +260,11 @@ display:
     # select rotates it to portrait at runtime
     rotation: 0
     # Packed 1bpp: the calendar is pure black/white, and monochrome enables
-    # fast DU partial refreshes between full GC16 cleans.
+    # fast DU partial refreshes between full GC16 cleans. Button presses
+    # while awake get partial (DU) refreshes and every 10th update is a full
+    # refresh; the first update after every boot (so every wake) is always a
+    # full GC16 refresh. The common package's `ghosted` logic gives the panel
+    # a full clean on the next timed wake after partial refreshes.
     grayscale: false
     dithering: false
     full_update_every: 10

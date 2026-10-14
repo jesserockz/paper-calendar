@@ -5,7 +5,7 @@
 #
 # Runs on the host platform with the snapshot display: the same render
 # lambda and fonts as the real device (common/) draw a set of demo
-# events, one BMP per view is written to
+# events (plus an offline-state view), one BMP per view is written to
 # .esphome/snapshots/paper-calendar-screenshots/ (override with the
 # ESPHOME_SNAPSHOT_DIR environment variable), and the binary exits.
 # snapshot.take never overwrites an existing file (it logs an error and
@@ -59,6 +59,9 @@ esphome:
           add(timed(2, "21:15:00"), timed(2, "22:40:00"), "Train home");
           id(setup_done) = true;
           id(data_state) = 1;
+          id(fetched_at) = now_ts;
+          id(cal_from) = day_str(0);
+          id(cal_to) = day_str(3);
       # Day view
       - lambda: "id(view_days) = 1;"
       - component.update: epaper
@@ -83,6 +86,19 @@ esphome:
           id: epaper_portrait
           filename: portrait-day-view.bmp
       - lambda: "id(portrait_mode) = false;"
+      # Offline: the last fetch failed, so the header shows the inverted
+      # OFFLINE note with the age of the data (2.5 hours here)
+      - lambda: |-
+          id(data_state) = 2;
+          id(fetched_at) = id(ha_time).now().timestamp - 9000;
+          id(view_days) = 1;
+      - component.update: epaper
+      - snapshot.take:
+          id: epaper
+          filename: offline-view.bmp
+      - lambda: |-
+          id(data_state) = 1;
+          id(fetched_at) = id(ha_time).now().timestamp;
       # Wi-Fi setup screen (shown while no Wi-Fi credentials are saved)
       - lambda: |-
           id(calendar_ids).publish_state("");
@@ -145,6 +161,13 @@ globals:
     type: std::vector<std::string>
   - id: cal_titles
     type: std::vector<std::string>
+  - id: fetched_at
+    type: time_t
+    initial_value: "0"
+  - id: cal_from
+    type: std::string
+  - id: cal_to
+    type: std::string
 
 text:
   - platform: template
