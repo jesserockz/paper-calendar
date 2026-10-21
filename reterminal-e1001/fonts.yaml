@@ -1,0 +1,42 @@
+# Font sizes for the reTerminal E1001: 800x480 7.5" (~124 DPI).
+# These sizes are close to what an outline font at the same pixel height
+# looked like: comfortable at arm's length without crowding the 3-day view.
+#
+# The TRMNL font family (the Font select) is a pixel-grid font with three
+# native sizes (12, 16, 21 - each also usable at an exact multiple), so the
+# trmnl_* vars pick a cut and a size per role the same way.
+#
+# Terminus is a bitmap font that only exists at fixed pixel sizes, so the
+# size per role is picked for this panel's pixel density. The render
+# lambda derives its layout from the font metrics, so changing a size
+# here reflows the display.
+
+packages:
+  fonts: !include
+    file: ../common/fonts.yaml
+    vars:
+      header_size: 28
+      day_size: 22
+      event_big_size: 22
+      event_size: 18
+      small_size: 14
+      trmnl_header_cut: 16
+      trmnl_header_size: 32
+      trmnl_day_cut: 21
+      trmnl_day_size: 21
+      trmnl_event_big_cut: 21
+      trmnl_event_big_size: 21
+      trmnl_event_cut: 16
+      trmnl_event_size: 16
+      trmnl_small_cut: 12
+      trmnl_small_size: 12
+
+substitutions:
+  # The render lambda (common/calendar-render.yaml) names a font id for
+  # each portrait-only role. This panel is never portrait so those
+  # fonts are not built (common/fonts-portrait.yaml is not included);
+  # point the roles at fonts that exist so the lambda still compiles.
+  font_header_xl_id: font_header
+  font_event_xl_id: font_event_big
+  trmnl_header_xl_id: trmnl_header
+  trmnl_event_xl_id: trmnl_event_big

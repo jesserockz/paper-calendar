@@ -1,7 +1,7 @@
 # Seeed Studio reTerminal E1001 - battery powered calendar display
 #
 # Hardware only: the calendar itself (entities, fetch and sleep logic,
-# render lambda and fonts) is the shared package in ../common, and this
+# render lambda) is the shared package in ../common, and this
 # file plugs the reTerminal into its hooks.
 #
 # - Left / right buttons page backward / forward through the days.
@@ -27,8 +27,10 @@ substitutions:
   view_button: green
 
 packages:
-  # The device-agnostic calendar logic, fonts included
+  # The device-agnostic calendar logic
   paper_calendar: !include ../common/paper-calendar.yaml
+  # Font sizes chosen for this panel's pixel density
+  fonts: !include fonts.yaml
 
 esp32:
   variant: esp32s3

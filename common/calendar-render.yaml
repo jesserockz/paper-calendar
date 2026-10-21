@@ -23,6 +23,28 @@
     }
     return str_sprintf("%02d:%02d", hour, minute);
   };
+  // The Font select: TRMNL, or Terminus for anything else
+  const bool trmnl = id(font_family).current_option() == "TRMNL";
+  font::Font *f_header = trmnl ? id(trmnl_header) : id(font_header);
+  font::Font *f_day = trmnl ? id(trmnl_day) : id(font_day);
+  font::Font *f_event_big = trmnl ? id(trmnl_event_big) : id(font_event_big);
+  font::Font *f_event = trmnl ? id(trmnl_event) : id(font_event);
+  font::Font *f_small = trmnl ? id(trmnl_small) : id(font_small);
+  // Portrait-only fonts: the ids come from the device's fonts.yaml preset
+  // (only a portrait-capable device builds them)
+  font::Font *f_header_xl = trmnl ? id(${trmnl_header_xl_id}) : id(${font_header_xl_id});
+  font::Font *f_event_xl = trmnl ? id(${trmnl_event_xl_id}) : id(${font_event_xl_id});
+  // The layout follows the fonts: every height and spacing below is
+  // derived from these metrics, so a device can pick any font sizes (see
+  // the fonts.yaml presets) and the display reflows to match.
+  const int h_header = f_header->get_height();
+  const int h_header_xl = f_header_xl->get_height();
+  const int h_day = f_day->get_height();
+  const int h_big = f_event_big->get_height();
+  const int h_small = f_small->get_height();
+  // Room kept clear at the bottom for the one-line footer hint, which is
+  // drawn 4px above the edge
+  const int footer_h = h_small + 10;
   ESP_LOGI("calendar", "render: %dx%d state=%d events=%u configured=%s",
            width, height, id(data_state), (unsigned) id(cal_starts).size(),
            YESNO(!id(calendar_ids).state.empty()));
@@ -107,7 +129,7 @@
   auto print_items = [&](int y, display::BaseFont *font, int line_h, int item_gap,
                          std::initializer_list<const char *> items) -> int {
     for (const char *item : items) {
-      for (const auto &line : wrap_text(font, item, width - 32, 4)) {
+      for (const auto &line : wrap_text(font, item, width - 16, 4)) {
         it.print(width / 2, y, font, black, TextAlign::CENTER, line.c_str());
         y += line_h;
       }
@@ -118,9 +140,12 @@
 
   // ---- Wi-Fi setup screen (no credentials saved yet) ----
   if (id(wifi_setup)) {
-    it.print(width / 2, portrait ? 120 : 40, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
-    // Landscape: one line per item, 40px apart. Portrait: items wrap.
-    const int y = print_items(portrait ? 200 : 95, id(font_event_big), portrait ? 30 : 40, portrait ? 16 : 0,
+    const int title_y = portrait ? height / 8 : height / 12;
+    it.print(width / 2, title_y, f_header, black, TextAlign::CENTER, "Paper Calendar setup");
+    // Landscape: one airy line per item. Portrait: items wrap, so tighter
+    // lines with a gap between items.
+    const int y = print_items(title_y + h_header + 26, f_event_big, portrait ? h_big + 8 : h_big * 9 / 5,
+                              portrait ? h_big * 2 / 3 : 0,
                               {"Connect this device to Wi-Fi, using any of:",
                                "Bluetooth: set it up from Home Assistant",
                                "USB: open web.esphome.io in Chrome or Edge",
@@ -131,34 +156,37 @@
     const int qr_px = id(wifi_qr).get_size() * qr_scale;
     const int qr_y = y - 10 + (portrait ? 40 : 0);
     it.qr_code((width - qr_px) / 2, qr_y, id(wifi_qr), black, qr_scale);
-    it.printf(width / 2, qr_y + qr_px + 8, id(font_event), black, TextAlign::TOP_CENTER, "Wi-Fi: %s",
+    it.printf(width / 2, qr_y + qr_px + 8, f_event, black, TextAlign::TOP_CENTER, "Wi-Fi: %s",
               id(ap_ssid).c_str());
-    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+    it.print(width / 2, height - 4, f_small, black, TextAlign::BOTTOM_CENTER,
              "The device stays awake until Wi-Fi is set up");
     return;
   }
 
   // ---- First-boot setup screen ----
   if (id(calendar_ids).state.empty()) {
-    it.print(width / 2, portrait ? 200 : 110, id(font_header), black, TextAlign::CENTER, "Paper Calendar setup");
-    // Landscape: one line per step, 45px apart. Portrait: steps wrap.
-    const int y = print_items(portrait ? 290 : 190, id(font_event_big), portrait ? 30 : 45, portrait ? 20 : 0,
+    const int title_y = height * 7 / 32;
+    it.print(width / 2, title_y, f_header, black, TextAlign::CENTER, "Paper Calendar setup");
+    // Landscape: one airy line per step. Portrait: steps wrap, so tighter
+    // lines with a gap between steps.
+    const int y = print_items(title_y + h_header + 56, f_event_big, portrait ? h_big + 8 : h_big * 2,
+                              portrait ? h_big * 3 / 4 : 0,
                               {"1. In Home Assistant, allow this device to perform actions",
                                "2. Fill in the Calendars text entity (e.g. calendar.family)",
                                "3. Pick a battery display style (optional)", "4. Press the Confirm setup button"});
-    it.print(width / 2, y + 30, id(font_small), black, TextAlign::CENTER,
+    it.print(width / 2, y + h_small * 2, f_small, black, TextAlign::CENTER,
              "The device stays awake until setup is confirmed");
     return;
   }
 
   // Failed and nothing cached to fall back on
   if (id(data_state) == 2 && id(fetched_at) == 0) {
-    it.print(width / 2, height / 2, id(font_header), black, TextAlign::CENTER, "Could not reach Home Assistant");
+    it.print(width / 2, height / 2, f_header, black, TextAlign::CENTER, "Could not reach Home Assistant");
     return;
   }
 
   if (id(data_state) == 0 || !now.is_valid()) {
-    it.print(width / 2, height / 2, id(font_header), black, TextAlign::CENTER, "Loading calendar...");
+    it.print(width / 2, height / 2, f_header, black, TextAlign::CENTER, "Loading calendar...");
     return;
   }
 
@@ -179,11 +207,19 @@
   } else {
     title = start_day.strftime("%d %b") + " - " + end_day.strftime("%d %b %Y");
   }
+  const int pad = 8;
+  // The first header row is the title (portrait: the weekday) on the left
+  // with the status on the right. Portrait then has the date line under
+  // the large weekday. The last row is the "updated" / OFFLINE note, right
+  // aligned under the taller of the lines above it (portrait: under the
+  // date, which runs too wide to share a row with it).
+  const int date_y = pad + h_header_xl;
+  const int row2_y = portrait ? date_y + h_header : pad + std::max(h_header, h_day);
   if (portrait) {
-    it.print(16, 6, id(font_header_xl), black, start_day.strftime("%A").c_str());
-    it.print(16, 66, id(font_header), black, title.c_str());
+    it.print(16, pad, f_header_xl, black, start_day.strftime("%A").c_str());
+    it.print(16, date_y, f_header, black, title.c_str());
   } else {
-    it.print(16, 8, id(font_header), black, title.c_str());
+    it.print(16, pad, f_header, black, title.c_str());
   }
 
   const char *view_label = days == 1 ? "Day" : (days == 3 ? "3-Day" : "Week");
@@ -213,17 +249,17 @@
   std::string status = portrait ? batt : std::string(view_label) + "   " + batt;
   // The climate readout leads the status line when it clears the title
   // on the left; otherwise it moves down beside "updated".
-  const int title_right = 16 + (portrait ? text_w(id(font_header_xl), start_day.strftime("%A"))
-                                         : text_w(id(font_header), title));
+  const int title_right = 16 + (portrait ? text_w(f_header_xl, start_day.strftime("%A"))
+                                         : text_w(f_header, title));
   bool climate_top = false;
   if (!climate.empty()) {
     const std::string with_climate = climate + "   " + status;
-    if (width - 16 - text_w(id(font_day), with_climate) >= title_right + 24) {
+    if (width - 16 - text_w(f_day, with_climate) >= title_right + 24) {
       status = with_climate;
       climate_top = true;
     }
   }
-  it.print(width - 16, portrait ? 10 : 8, id(font_day), black, TextAlign::TOP_RIGHT, status.c_str());
+  it.print(width - 16, pad, f_day, black, TextAlign::TOP_RIGHT, status.c_str());
   // When the events on screen were fetched, with the weekday if not today
   auto fetched = ESPTime::from_epoch_local(id(fetched_at));
   std::string fetched_text = fmt_time(fetched.hour, fetched.minute);
@@ -232,42 +268,46 @@
   // The climate readout, when it did not fit on the status line
   const std::string climate_low = climate.empty() || climate_top ? "" : climate + "   ";
   if (id(data_state) == 2) {
-    // Offline: inverted, so it stands out from the normal stamp. 2px higher
-    // with 2px vertical padding, clear of the header rule.
+    // Offline: inverted, so it stands out from the normal stamp, with 2px
+    // vertical padding, clear of the header rule.
     const std::string offline = "OFFLINE - data from " + fetched_text;
     int bx, by, bw, bh;
-    it.get_text_bounds(width - 16, 36, offline.c_str(), id(font_small), TextAlign::TOP_RIGHT, &bx, &by, &bw, &bh);
+    it.get_text_bounds(width - 16, row2_y, offline.c_str(), f_small, TextAlign::TOP_RIGHT, &bx, &by, &bw, &bh);
     it.filled_rectangle(bx - 4, by - 2, bw + 8, bh + 4, black);
-    it.print(width - 16, 36, id(font_small), Color::WHITE, TextAlign::TOP_RIGHT, offline.c_str());
+    it.print(width - 16, row2_y, f_small, Color::WHITE, TextAlign::TOP_RIGHT, offline.c_str());
     // The wider offline note leaves less room: drop the climate rather than
     // run it into the title
-    if (!climate_low.empty() && bx - 4 - text_w(id(font_small), climate_low) >= title_right + 24)
-      it.print(bx - 4, 38, id(font_small), black, TextAlign::TOP_RIGHT, climate_low.c_str());
+    if (!climate_low.empty() && bx - 4 - text_w(f_small, climate_low) >= title_right + 24)
+      it.print(bx - 4, row2_y, f_small, black, TextAlign::TOP_RIGHT, climate_low.c_str());
   } else {
-    it.print(width - 16, 38, id(font_small), black, TextAlign::TOP_RIGHT,
+    it.print(width - 16, row2_y, f_small, black, TextAlign::TOP_RIGHT,
              (climate_low + "updated " + fetched_text).c_str());
   }
-  const int header_h = portrait ? 108 : 56;
+  // The header ends under its lowest line, plus a margin for the offline
+  // note's padding
+  const int header_h = row2_y + h_small + 8;
   it.line(0, header_h, width, header_h, black);
 
   // ---- Day columns ----
   const int top = header_h + (portrait ? 14 : 8);
   const int col_w = width / days;
-  display::BaseFont *ev_font = portrait ? id(font_event_xl) : (days == 1 ? id(font_event_big) : id(font_event));
-  const int row_h = portrait ? 38 : (days == 1 ? 30 : 24);
-  const int max_y = height - row_h - 24;
+  font::Font *ev_font = portrait ? f_event_xl : (days == 1 ? f_event_big : f_event);
+  const int ev_h = ev_font->get_height();
+  // One event line: the text height plus a third of it between lines
+  const int row_h = ev_h + ev_h / 3;
+  const int max_y = height - row_h - footer_h;
   for (int d = 0; d < days; d++) {
     const int x = d * col_w;
     auto day = ESPTime::from_epoch_local(base_ts + (time_t) d * 86400);
     std::string day_key = day.strftime("%Y-%m-%d");
     int y = top;
     if (days > 1) {
-      it.printf(x + col_w / 2, y, id(font_day), black, TextAlign::TOP_CENTER, "%s", day.strftime("%a %d").c_str());
-      y += 28;
+      it.printf(x + col_w / 2, y, f_day, black, TextAlign::TOP_CENTER, "%s", day.strftime("%a %d").c_str());
+      y += h_day + 6;
       it.line(x + 6, y, x + col_w - 6, y, black);
       y += 6;
       if (d > 0)
-        it.line(x, top, x, height - 24, black);
+        it.line(x, top, x, height - footer_h, black);
     }
     // Days outside the fetched range are unknown, not empty
     const bool in_range = id(cal_from).empty() || (day_key >= id(cal_from) && day_key < id(cal_to));
@@ -306,7 +346,7 @@
       // In progress now (today's column only): a solid bar in the left
       // margin next to the first line. Same condition as the redraw hash.
       if (!all_day && day_key == today_key && s.compare(0, 19, now19) <= 0 && e.compare(0, 19, now19) > 0)
-        it.filled_rectangle(x + 2, y + 3, 4, row_h - 6, black);
+        it.filled_rectangle(x + 2, y + row_h / 8, 4, row_h - row_h / 4, black);
       if (stack_time) {
         it.print(x + 8, y, ev_font, black, prefix.c_str());
         y += row_h;
@@ -323,7 +363,7 @@
       }
       shown++;
     }
-    auto *note_font = portrait ? id(font_event_big) : id(font_small);
+    auto *note_font = portrait ? f_event_big : f_small;
     if (hidden > 0) {
       it.printf(x + 8, y, note_font, black, "+%d more", hidden);
     } else if (shown == 0) {
@@ -336,16 +376,16 @@
 
   // ---- Footer ----
   if (!id(setup_done)) {
-    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+    it.print(width / 2, height - 4, f_small, black, TextAlign::BOTTOM_CENTER,
              "Setup preview - press the Confirm setup button in HA to enable sleep");
   } else if (id(data_state) == 2) {
-    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+    it.print(width / 2, height - 4, f_small, black, TextAlign::BOTTOM_CENTER,
              "! Could not reach Home Assistant - showing last known events");
   } else if (portrait) {
     // Single-day view: the view button goes back to today
-    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+    it.print(width / 2, height - 4, f_small, black, TextAlign::BOTTOM_CENTER,
              "up: back    ${view_button}: today    down: forward");
   } else {
-    it.print(width / 2, height - 4, id(font_small), black, TextAlign::BOTTOM_CENTER,
+    it.print(width / 2, height - 4, f_small, black, TextAlign::BOTTOM_CENTER,
              "left: back    ${view_button}: change view (hold: today)    right: forward");
   }

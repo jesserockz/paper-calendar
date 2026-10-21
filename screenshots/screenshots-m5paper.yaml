@@ -1,0 +1,170 @@
+# Renders the M5Paper display off-device and saves the README/site
+# screenshots - no hardware or Home Assistant needed:
+#
+#   esphome run screenshots/screenshots-m5paper.yaml
+#
+# Runs on the host platform with the snapshot display: the same render
+# lambda as the real device (common/) and the M5Paper's font preset
+# (m5paper/fonts.yaml) draw a set of demo events (plus an offline-state
+# view), one BMP per view is written to
+# .esphome/snapshots/pc-screenshots-m5paper/ (override with the
+# ESPHOME_SNAPSHOT_DIR environment variable), and the binary exits.
+# snapshot.take never overwrites an existing file (it logs an error and
+# skips it), so delete the old BMPs before re-running.
+# Convert the BMPs to PNG and put them in static/screenshots/.
+#
+# This config is a development tool: it is not built by CI (only
+# *.factory.yaml files are) and is not meant to be installed anywhere.
+#
+# Renders both orientations (the Orientation select): the 960x540
+# landscape panel (landscape-*.bmp) and the 540x960 portrait panel
+# (portrait-*.bmp).
+
+# The rocker's push button, named in the footer hint, as on the M5Paper
+substitutions:
+  view_button: ok
+
+esphome:
+  name: pc-screenshots-m5paper
+  min_version: 2026.9.1
+  on_boot:
+    # After the demo state is seeded (common.yaml, priority -100)
+    - priority: -200
+      then:
+        - select.set:
+            id: climate_display_mode
+            option: Temperature and humidity
+        # Landscape: day, 3-day, offline, Wi-Fi setup, first-boot setup
+        - lambda: "id(view_days) = 1;"
+        - component.update: epaper
+        - snapshot.take:
+            id: epaper
+            filename: landscape-day-view.bmp
+        - lambda: "id(view_days) = 3;"
+        - component.update: epaper
+        - snapshot.take:
+            id: epaper
+            filename: landscape-three-day-view.bmp
+        - lambda: |-
+            id(data_state) = 2;
+            id(fetched_at) = id(ha_time).now().timestamp - 9000;
+            id(view_days) = 1;
+        - component.update: epaper
+        - snapshot.take:
+            id: epaper
+            filename: landscape-offline-view.bmp
+        - lambda: |-
+            id(data_state) = 1;
+            id(fetched_at) = id(ha_time).now().timestamp;
+            id(calendar_ids).publish_state("");
+            id(wifi_setup) = true;
+            id(wifi_qr).set_value("WIFI:T:nopass;S:" + id(ap_ssid) + ";;");
+        - component.update: epaper
+        - snapshot.take:
+            id: epaper
+            filename: landscape-wifi-setup.bmp
+        - lambda: "id(wifi_setup) = false;"
+        - component.update: epaper
+        - snapshot.take:
+            id: epaper
+            filename: landscape-setup-screen.bmp
+        - lambda: |-
+            id(calendar_ids).publish_state("calendar.family, calendar.work");
+        # Portrait (single day view only)
+        - lambda: "id(portrait_mode) = true;"
+        - lambda: "id(view_days) = 1;"
+        - component.update: epaper_portrait
+        - snapshot.take:
+            id: epaper_portrait
+            filename: portrait-day-view.bmp
+        - lambda: |-
+            id(data_state) = 2;
+            id(fetched_at) = id(ha_time).now().timestamp - 9000;
+            id(view_days) = 1;
+        - component.update: epaper_portrait
+        - snapshot.take:
+            id: epaper_portrait
+            filename: portrait-offline-view.bmp
+        - lambda: |-
+            id(data_state) = 1;
+            id(fetched_at) = id(ha_time).now().timestamp;
+            id(calendar_ids).publish_state("");
+            id(wifi_setup) = true;
+            id(wifi_qr).set_value("WIFI:T:nopass;S:" + id(ap_ssid) + ";;");
+        - component.update: epaper_portrait
+        - snapshot.take:
+            id: epaper_portrait
+            filename: portrait-wifi-setup.bmp
+        - lambda: "id(wifi_setup) = false;"
+        - component.update: epaper_portrait
+        - snapshot.take:
+            id: epaper_portrait
+            filename: portrait-setup-screen.bmp
+        - lambda: |-
+            id(calendar_ids).publish_state("calendar.family, calendar.work");
+        # The TRMNL font family (the Font select), landscape then portrait
+        - lambda: "id(portrait_mode) = false;"
+        - select.set:
+            id: font_family
+            option: TRMNL
+        - lambda: "id(view_days) = 1;"
+        - component.update: epaper
+        - snapshot.take:
+            id: epaper
+            filename: landscape-trmnl-day-view.bmp
+        - lambda: "id(view_days) = 3;"
+        - component.update: epaper
+        - snapshot.take:
+            id: epaper
+            filename: landscape-trmnl-three-day-view.bmp
+        - lambda: "id(view_days) = 1;"
+        - select.set:
+            id: font_family
+            option: TRMNL
+        - lambda: "id(portrait_mode) = true;"
+        - lambda: "id(view_days) = 1;"
+        - select.set:
+            id: font_family
+            option: TRMNL
+        - component.update: epaper_portrait
+        - snapshot.take:
+            id: epaper_portrait
+            filename: portrait-trmnl-day-view.bmp
+        - select.set:
+            id: font_family
+            option: TRMNL
+        # The setup screens in the TRMNL family
+        - lambda: |-
+            id(calendar_ids).publish_state("");
+            id(wifi_setup) = true;
+            id(wifi_qr).set_value("WIFI:T:nopass;S:" + id(ap_ssid) + ";;");
+        - component.update: epaper_portrait
+        - snapshot.take:
+            id: epaper_portrait
+            filename: portrait-trmnl-wifi-setup.bmp
+        - lambda: "id(wifi_setup) = false;"
+        - component.update: epaper_portrait
+        - snapshot.take:
+            id: epaper_portrait
+            filename: portrait-trmnl-setup-screen.bmp
+        - lambda: |-
+            id(calendar_ids).publish_state("calendar.family, calendar.work");
+        - lambda: "::exit(0);"
+
+packages:
+  common: !include common.yaml
+  fonts: !include ../m5paper/fonts.yaml
+
+display:
+  - platform: snapshot
+    id: epaper
+    # M5Paper panel in landscape
+    dimensions: 960x540
+    update_interval: never
+    lambda: !include ../common/calendar-render.yaml
+  - platform: snapshot
+    id: epaper_portrait
+    # M5Paper panel in portrait (the Orientation select)
+    dimensions: 540x960
+    update_interval: never
+    lambda: !include ../common/calendar-render.yaml

@@ -2,7 +2,7 @@
 # display
 #
 # Hardware only: the calendar itself (entities, fetch and sleep logic,
-# render lambda and fonts) is the shared package in ../common, and this
+# render lambda) is the shared package in ../common, and this
 # file plugs the M5Paper into its hooks.
 #
 # - Landscape (default) has the rocker switch on the top edge: the left /
@@ -34,8 +34,10 @@ substitutions:
   view_button: ok
 
 packages:
-  # The device-agnostic calendar logic, fonts included
+  # The device-agnostic calendar logic
   paper_calendar: !include ../common/paper-calendar.yaml
+  # Font sizes chosen for this panel's pixel density
+  fonts: !include fonts.yaml
 
 esphome:
   # The before_deep_sleep GPIO hold and the ext0 wake cause check below

@@ -17,6 +17,7 @@ Each supported device has its own folder with its own prebuilt firmware, install
 
 ## Features
 
+- Two text styles, picked with the **Font** setting: Terminus or TRMNL.
 - Day and 3-day views of any number of Home Assistant calendars, merged and sorted.
 - On the M5Paper, an **Orientation** setting switches to portrait: a single day in larger text.
 - Deep sleep between refreshes with a configurable interval, awake time, and an overnight downtime window.
@@ -34,6 +35,10 @@ Each supported device has its own folder with its own prebuilt firmware, install
 ![Offline indicator](static/screenshots/offline-view.png)
 
 <img src="static/screenshots/portrait-day-view.png" alt="Portrait day view (M5Paper)" width="270">
+
+The **Font** setting switches the whole display between Terminus and TRMNL. The same day in TRMNL:
+
+![Day view in TRMNL](static/screenshots/trmnl-day-view.png)
 
 ## Installation
 
@@ -74,6 +79,7 @@ All of these live on the device and persist across deep sleep and reboots:
 | Battery display      | Select | Header battery readout: `Percentage`, `Voltage`, or `Both`.                                                                                                                             |
 | Climate display      | Select | Header room climate readout: `Off`, `Temperature`, or `Temperature and humidity`. Shows nothing on a device without a room sensor.                                                      |
 | Temperature unit     | Select | Header temperature in `Celsius` or `Fahrenheit` (the Temperature sensor itself always reports Celsius).                                                                                 |
+| Font                 | Select | The display font: `Terminus` (default) or `TRMNL`, two pixel fonts sized to stay crisp on e-paper.                                                                                      |
 | Orientation          | Select | M5Paper only: `Landscape` (rocker on top; day and 3-day views) or `Portrait` (rocker on the right; a single day in larger text).                                                        |
 | Refresh interval     | Number | Longest sleep between refreshes in minutes (5 to 720); the device also wakes shortly after events start or end today, and just after midnight.                                          |
 | Awake time           | Number | Seconds the device stays awake after boot or the last button press (10 to 300).                                                                                                         |
@@ -156,14 +162,14 @@ api:
 
 ## Development
 
-The configuration is plain ESPHome YAML (requires ESPHome 2026.9.0 or newer). Everything device-agnostic lives in [common/](common); each device folder holds only that device's hardware:
+The configuration is plain ESPHome YAML (requires ESPHome 2026.9.1 or newer). Everything device-agnostic lives in [common/](common); each device folder holds only that device's hardware:
 
 - [common/paper-calendar.yaml](common/paper-calendar.yaml) - the calendar itself: configuration entities, fetch / sleep / button logic, Wi-Fi setup, and the API, OTA, Wi-Fi and time setup. Every device includes it as a package, and every device uses the firmware name `paper-calendar`.
 - [common/factory.yaml](common/factory.yaml) - the web-installer extras: Improv Serial and Bluetooth provisioning, dashboard import, and GitHub-release OTA updates.
-- [common/calendar-render.yaml](common/calendar-render.yaml) and [common/fonts.yaml](common/fonts.yaml) - the render lambda and fonts, shared by every device config and the screenshot tool.
+- [common/calendar-render.yaml](common/calendar-render.yaml) and [common/fonts.yaml](common/fonts.yaml) - the render lambda and the font template, shared by every device config and the screenshot tools ([common/fonts-portrait.yaml](common/fonts-portrait.yaml) adds the larger portrait-only fonts, which only a portrait-capable device includes, so the others do not spend flash on them). The layout is derived from the font metrics; each device picks Terminus bitmap font sizes to suit its panel's pixel density in its own `<device>/fonts.yaml` preset, which its device config includes.
 - `<device>/<device>.yaml` - the device config (what gets adopted): `common/paper-calendar.yaml` plus the device's hardware, e.g. [reterminal-e1001/reterminal-e1001.yaml](reterminal-e1001/reterminal-e1001.yaml).
 - `<device>/<device>.factory.yaml` - the web-installer image for that device: its device config plus `common/factory.yaml`, and the project name and version.
-- [screenshots/screenshots.yaml](screenshots/screenshots.yaml) - a host-platform config that renders the display with demo events and saves the screenshots used on this page (`esphome run screenshots/screenshots.yaml`, then convert the BMPs from `screenshots/.esphome/snapshots/` to PNG in `static/screenshots/`).
+- [screenshots/](screenshots) - host-platform configs that render each device's display with demo events and save the screenshots used on this page (`esphome run screenshots/screenshots-reterminal-e1001.yaml` or `screenshots/screenshots-m5paper.yaml`, then convert the BMPs from `screenshots/.esphome/snapshots/<name>/` to PNG in `static/screenshots/`). The shared demo state is in [screenshots/common.yaml](screenshots/common.yaml).
 
 ```bash
 esphome compile reterminal-e1001/reterminal-e1001.factory.yaml
@@ -175,7 +181,7 @@ Releases are built automatically: pushes to `main` update a draft release via Re
 
 Create a `<device>/` folder with two files, modelled on [reterminal-e1001](reterminal-e1001):
 
-`<device>/<device>.yaml` includes `../common/paper-calendar.yaml` under `packages:` and adds only hardware:
+`<device>/<device>.yaml` includes `../common/paper-calendar.yaml` and the device's own `fonts.yaml` (a small preset that includes `../common/fonts.yaml` with Terminus sizes for the panel's pixel density) under `packages:` and adds only hardware:
 
 - the `esp32:` block, and a `logger:` override if the USB serial is not the default port;
 - the display with `id: epaper` and `lambda: !include ../common/calendar-render.yaml`;
@@ -202,3 +208,9 @@ The common package assumes the display's first update after boot is a full refre
 A device without a buzzer defines the `feedback_*` scripts as `then: []`, and one without a room sensor defines `read_climate` the same way. Keep any `esphome: on_boot:` in list form: package lists are concatenated, but a dict-form `on_boot` would replace the common one.
 
 `<device>/<device>.factory.yaml` includes the device config and `../common/factory.yaml` with the folder name as the `device` var (used for the dashboard import URL and the `firmware/<device>.manifest.json` update manifest), and carries the `esphome: project:` block itself, since the build workflow stamps the release version into the file it builds. Then add a build group for the folder in [.github/workflows/build.yml](.github/workflows/build.yml), an install button in [static/index.md](static/index.md), and a row in [Supported devices](#supported-devices).
+
+### Fonts
+
+Text is set in [Terminus](https://terminus-font.sourceforge.net/) 4.49.1, a bitmap font licensed under the [SIL Open Font License 1.1](https://github.com/freebsd/freebsd-src/blob/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/OFL.TXT), fetched from FreeBSD's source mirror at build time.
+
+The **Font** select also offers the TRMNL family: pixel-grid fonts by Heavyweight Digital Type Foundry for TRMNL (TRMNL12, TRMNL16 and TRMNL21, each in Regular and Bold), vendored in [fonts/trmnl](fonts/trmnl) (see its [README](fonts/trmnl/README.md) for the source and licence note). They are drawn without anti-aliasing and are only rendered at their native pixel size or an exact multiple of it (e.g. TRMNL16 at 32), so strokes stay on whole pixels; each device's `fonts.yaml` picks a cut and size per role. The [font page](https://trmnl.com/font-family) says they are free to use, including commercially, but names no licence.

@@ -58,6 +58,12 @@
 #     deep_sleep.enter. E.g. latch a power-hold GPIO; empty if not needed.
 # And the ids this package expects the device to provide:
 #   - display id epaper (lambda: !include ../common/calendar-render.yaml)
+#   - the fonts, from the device's own preset (fonts.yaml in its folder,
+#     which includes ../common/fonts.yaml with sizes for its panel, and
+#     sets the font_header_xl_id, font_event_xl_id, trmnl_header_xl_id and
+#     trmnl_event_xl_id substitutions the render lambda uses for portrait;
+#     a portrait-capable device also includes common/fonts-portrait.yaml
+#     to build those fonts, others point the ids at any existing font)
 #   - sensor id battery_voltage
 # The device's deep_sleep block only adds wake sources (id sleeper is set
 # here); its buttons call the action_* scripts below, and its on_wake
@@ -83,8 +89,11 @@ esphome:
   # overlay (see the README) can override this to false.
   name_add_mac_suffix: true
   # 2026.9.0: epaper_spi seeed-reterminal-e1001 model and deep_sleep
-  # per-pin on_wake (calendar.get_events action responses need 2025.10.0)
-  min_version: 2026.9.0
+  # per-pin on_wake (calendar.get_events action responses need 2025.10.0).
+  # 2026.9.1: relative file paths also resolve against the YAML document
+  # that declares them, which finds the vendored fonts/trmnl files when a
+  # device yaml is adopted from GitHub (esphome PR 19259)
+  min_version: 2026.9.1
   # List form, so devices can add their own entries
   includes:
     - <esp_sleep.h>
@@ -511,6 +520,23 @@ select:
     on_value:
       - script.execute: fetch_events
 
+  # Font family for the whole display: Terminus (bitmap) or TRMNL (pixel
+  # grid), see common/fonts.yaml.
+  - platform: template
+    id: font_family
+    name: Font
+    entity_category: config
+    icon: mdi:format-font
+    options:
+      - Terminus
+      - TRMNL
+    initial_option: Terminus
+    optimistic: true
+    restore_value: true
+    # Refetch rather than redraw directly - see battery_display_mode
+    on_value:
+      - script.execute: fetch_events
+
   - platform: template
     id: temperature_unit
     name: Temperature unit
@@ -608,7 +634,7 @@ script:
                 id(view_days) = id(view_days) == 1 ? 3 : 1;
 
   # Redraws the panel, unless what it would show is what it already shows.
-  # The hash covers everything the render draws EXCEPT the "updated" stamp
+  # The hash (which includes the Font choice) covers everything the render draws EXCEPT the "updated" stamp
   # and the exact battery and climate values: the stamp is excluded on
   # purpose (otherwise every successful fetch would redraw), so a redraw
   # that finds nothing changed leaves the old stamp on screen. The battery
@@ -645,7 +671,7 @@ script:
                                             id(view_days), id(portrait_mode), id(clock_12h).state,
                                             id(title_overflow).current_option().str().c_str(), bmode.c_str(),
                                             batt_bucket, id(cal_from).c_str(), id(cal_to).c_str()) +
-                                climate_key;
+                                id(font_family).current_option().str() + "|" + climate_key;
               for (size_t i = 0; i < id(cal_starts).size(); i++) {
                 const std::string &s = id(cal_starts)[i];
                 const std::string &e = id(cal_ends)[i];
@@ -1032,10 +1058,6 @@ sensor:
       - clamp:
           min_value: 0
           max_value: 100
-
-packages:
-  # Fonts are shared with the host screenshot config
-  fonts: !include fonts.yaml
 
 # Join-the-hotspot QR code on the Wi-Fi setup screen. The SSID carries the
 # MAC suffix, so the real value is set at boot (see on_boot).
