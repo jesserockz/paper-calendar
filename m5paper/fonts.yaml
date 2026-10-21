@@ -1,0 +1,55 @@
+# Font sizes for the M5Paper: 960x540 4.7" (~234 DPI).
+# The pixel density is about twice the reTerminal's, so the same pixel
+# size renders about half as large; the sizes are bumped up to keep the
+# text legible. 32 is the largest Terminus size, so the portrait weekday
+# is smaller than it would ideally be.
+#
+# The TRMNL font family (the Font select) is a pixel-grid font with three
+# native sizes (12, 16, 21 - each also usable at an exact multiple), so the
+# trmnl_* vars pick a cut and a size per role the same way.
+#
+# This panel can be held in portrait, so it also includes the larger
+# portrait-only fonts (common/fonts-portrait.yaml) and tells the render
+# lambda their ids.
+#
+# Terminus is a bitmap font that only exists at fixed pixel sizes, so the
+# size per role is picked for this panel's pixel density. The render
+# lambda derives its layout from the font metrics, so changing a size
+# here reflows the display.
+
+packages:
+  fonts: !include
+    file: ../common/fonts.yaml
+    vars:
+      header_size: 32
+      day_size: 24
+      event_big_size: 24
+      event_size: 20
+      small_size: 16
+      trmnl_header_cut: 16
+      trmnl_header_size: 32
+      trmnl_day_cut: 21
+      trmnl_day_size: 21
+      trmnl_event_big_cut: 21
+      trmnl_event_big_size: 21
+      trmnl_event_cut: 21
+      trmnl_event_size: 21
+      trmnl_small_cut: 16
+      trmnl_small_size: 16
+  portrait_fonts: !include
+    file: ../common/fonts-portrait.yaml
+    vars:
+      header_xl_size: 32
+      event_xl_size: 28
+      trmnl_header_xl_cut: 21
+      trmnl_header_xl_size: 42
+      trmnl_event_xl_cut: 16
+      trmnl_event_xl_size: 32
+
+substitutions:
+  # The portrait-only fonts the render lambda uses (see
+  # common/fonts-portrait.yaml)
+  font_header_xl_id: font_header_xl
+  font_event_xl_id: font_event_xl
+  trmnl_header_xl_id: trmnl_header_xl
+  trmnl_event_xl_id: trmnl_event_xl

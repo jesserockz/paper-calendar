@@ -1,0 +1,46 @@
+# The larger fonts used only in portrait (a single day with bigger text),
+# so a device that cannot be held in portrait leaves this file out and does
+# not spend flash on them. Included by the device's fonts.yaml preset
+# alongside common/fonts.yaml, which explains the Terminus and TRMNL
+# families and their size rules.
+#
+# Include with vars (Terminus pixel heights, TRMNL cut and size as in
+# common/fonts.yaml):
+#   header_xl_size  - portrait weekday (bold)
+#   event_xl_size   - portrait events
+#   trmnl_header_xl_cut, trmnl_header_xl_size - TRMNL portrait weekday
+#   trmnl_event_xl_cut, trmnl_event_xl_size   - TRMNL portrait events
+font:
+  # Portrait weekday
+  - file: https://raw.githubusercontent.com/freebsd/freebsd-src/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/ter-u${header_xl_size}b.bdf
+    id: font_header_xl
+    glyphsets: [GF_Latin_Core]
+    # Terminus lacks some GF_Latin_Core glyphs (e.g. standalone combining
+    # accents); the common precomposed accented letters, the degree sign
+    # and "~" are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
+  # Portrait events
+  - file: https://raw.githubusercontent.com/freebsd/freebsd-src/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/ter-u${event_xl_size}n.bdf
+    id: font_event_xl
+    glyphsets: [GF_Latin_Core]
+    # Terminus lacks some GF_Latin_Core glyphs (e.g. standalone combining
+    # accents); the common precomposed accented letters, the degree sign
+    # and "~" are all present, so the missing-glyph warnings are noise.
+    ignore_missing_glyphs: true
+  # ---- TRMNL ----
+  # Portrait weekday
+  - file: ../fonts/trmnl/TRMNL${trmnl_header_xl_cut}-Bold.ttf
+    id: trmnl_header_xl
+    size: ${trmnl_header_xl_size}
+    glyphsets: [GF_Latin_Core]
+    # Not every GF_Latin_Core glyph is in the font: the missing-glyph
+    # warnings are noise.
+    ignore_missing_glyphs: true
+  # Portrait events
+  - file: ../fonts/trmnl/TRMNL${trmnl_event_xl_cut}-Regular.ttf
+    id: trmnl_event_xl
+    size: ${trmnl_event_xl_size}
+    glyphsets: [GF_Latin_Core]
+    # Not every GF_Latin_Core glyph is in the font: the missing-glyph
+    # warnings are noise.
+    ignore_missing_glyphs: true

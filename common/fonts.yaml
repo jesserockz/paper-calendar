@@ -1,54 +1,121 @@
-# Fonts shared between the device configs and the host screenshot config
-# (screenshots/screenshots.yaml). Same ids everywhere so the render lambda
-# (common/calendar-render.yaml) works against either display.
+# Fonts shared between the device configs and the host screenshot configs
+# (screenshots/). Same ids everywhere so the render lambda
+# (common/calendar-render.yaml) works against any display.
+#
+# Terminus (4.49.1) is a bitmap font: every glyph is hand-drawn on a pixel
+# grid, so text is crisp on a 1-bit e-paper where an outline font gets
+# anti-aliased into mush. The cost is that it only exists at fixed pixel
+# sizes (12, 14, 16, 18, 20, 22, 24, 28, 32), so each device picks the
+# size per role to suit its panel's pixel density - see the font presets
+# in each device folder, which include this file with the sizes below.
+# The files are fetched from FreeBSD's source mirror at a pinned commit
+# (an immutable URL) rather than vendored.
+# Terminus is licensed under the SIL Open Font License 1.1:
+# https://github.com/freebsd/freebsd-src/blob/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/OFL.TXT
+#
+# The TRMNL fonts are a second family, picked at runtime by the Font select
+# (common/paper-calendar.yaml). They are pixel-grid fonts by Heavyweight
+# Digital Type Foundry for TRMNL, shipped as TTF but drawn to be rendered
+# without anti-aliasing (bpp 1 here). Each cut has a native pixel size
+# (TRMNL12, TRMNL16, TRMNL21; Regular and Bold) and must only be rendered at
+# that size or an exact integer multiple of it (e.g. TRMNL16 at 32), which
+# keeps every stroke on whole pixels. The size passed to ESPHome is the
+# em size, equal to the cut's number. The files are vendored in
+# fonts/trmnl (see fonts/trmnl/README.md for the source and licence note)
+# and referenced by a path relative to this file, which ESPHome resolves
+# against the declaring YAML document (2026.9.1+), so it also works when
+# a device yaml is adopted from GitHub.
+#
+# Include with vars (all sizes are Terminus pixel heights):
+#   header_size     - header title (bold)
+#   day_size        - 3-day column headings and header status (bold)
+#   event_big_size  - single-day events and setup screens
+#   event_size      - 3-day view events
+#   small_size      - header sub-line and footer hint
+# and the TRMNL equivalents for each role: trmnl_<role>_cut (12, 16 or 21)
+# and trmnl_<role>_size (the cut or a multiple of it), for the roles
+# header, day, event_big, event and small.
+# The larger portrait-only fonts are in common/fonts-portrait.yaml, which
+# only a device that can be held in portrait includes.
 font:
-  - file: gfonts://Roboto+Mono@700
+  # Header title, status text
+  - file: https://raw.githubusercontent.com/freebsd/freebsd-src/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/ter-u${header_size}b.bdf
     id: font_header
-    size: 30
     glyphsets: [GF_Latin_Core]
-    # Roboto lacks standalone combining accents (U+03xx); the precomposed
-    # accented letters are all present, so the missing-glyph warnings are noise.
+    # Terminus lacks some GF_Latin_Core glyphs (e.g. standalone combining
+    # accents); the common precomposed accented letters, the degree sign
+    # and "~" are all present, so the missing-glyph warnings are noise.
     ignore_missing_glyphs: true
-  - file: gfonts://Roboto+Mono@700
+  # 3-day column headings, header status
+  - file: https://raw.githubusercontent.com/freebsd/freebsd-src/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/ter-u${day_size}b.bdf
     id: font_day
-    size: 22
     glyphsets: [GF_Latin_Core]
-    # Roboto lacks standalone combining accents (U+03xx); the precomposed
-    # accented letters are all present, so the missing-glyph warnings are noise.
+    # Terminus lacks some GF_Latin_Core glyphs (e.g. standalone combining
+    # accents); the common precomposed accented letters, the degree sign
+    # and "~" are all present, so the missing-glyph warnings are noise.
     ignore_missing_glyphs: true
-  - file: gfonts://Roboto+Mono@400
+  # Single-day events, setup text
+  - file: https://raw.githubusercontent.com/freebsd/freebsd-src/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/ter-u${event_big_size}n.bdf
     id: font_event_big
-    size: 22
     glyphsets: [GF_Latin_Core]
-    # Roboto lacks standalone combining accents (U+03xx); the precomposed
-    # accented letters are all present, so the missing-glyph warnings are noise.
+    # Terminus lacks some GF_Latin_Core glyphs (e.g. standalone combining
+    # accents); the common precomposed accented letters, the degree sign
+    # and "~" are all present, so the missing-glyph warnings are noise.
     ignore_missing_glyphs: true
-  - file: gfonts://Roboto+Mono@400
+  # 3-day view events
+  - file: https://raw.githubusercontent.com/freebsd/freebsd-src/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/ter-u${event_size}n.bdf
     id: font_event
-    size: 18
     glyphsets: [GF_Latin_Core]
-    # Roboto lacks standalone combining accents (U+03xx); the precomposed
-    # accented letters are all present, so the missing-glyph warnings are noise.
+    # Terminus lacks some GF_Latin_Core glyphs (e.g. standalone combining
+    # accents); the common precomposed accented letters, the degree sign
+    # and "~" are all present, so the missing-glyph warnings are noise.
     ignore_missing_glyphs: true
-  - file: gfonts://Roboto+Mono@400
+  # Header sub-line, footer hint
+  - file: https://raw.githubusercontent.com/freebsd/freebsd-src/658a47d1ef6a0e8d56d346c5c16dcb2e001c3a40/contrib/terminus/ter-u${small_size}n.bdf
     id: font_small
-    size: 14
     glyphsets: [GF_Latin_Core]
-    # Roboto lacks standalone combining accents (U+03xx); the precomposed
-    # accented letters are all present, so the missing-glyph warnings are noise.
+    # Terminus lacks some GF_Latin_Core glyphs (e.g. standalone combining
+    # accents); the common precomposed accented letters, the degree sign
+    # and "~" are all present, so the missing-glyph warnings are noise.
     ignore_missing_glyphs: true
-  # Portrait single-day view (larger header and event text)
-  - file: gfonts://Roboto+Mono@700
-    id: font_header_xl
-    size: 48
+  # ---- TRMNL ----
+  # Header title
+  - file: ../fonts/trmnl/TRMNL${trmnl_header_cut}-Bold.ttf
+    id: trmnl_header
+    size: ${trmnl_header_size}
     glyphsets: [GF_Latin_Core]
-    # Roboto lacks standalone combining accents (U+03xx); the precomposed
-    # accented letters are all present, so the missing-glyph warnings are noise.
+    # Not every GF_Latin_Core glyph is in the font: the missing-glyph
+    # warnings are noise.
     ignore_missing_glyphs: true
-  - file: gfonts://Roboto+Mono@400
-    id: font_event_xl
-    size: 28
+  # 3-day column headings, header status
+  - file: ../fonts/trmnl/TRMNL${trmnl_day_cut}-Bold.ttf
+    id: trmnl_day
+    size: ${trmnl_day_size}
     glyphsets: [GF_Latin_Core]
-    # Roboto lacks standalone combining accents (U+03xx); the precomposed
-    # accented letters are all present, so the missing-glyph warnings are noise.
+    # Not every GF_Latin_Core glyph is in the font: the missing-glyph
+    # warnings are noise.
+    ignore_missing_glyphs: true
+  # Single-day events, setup text
+  - file: ../fonts/trmnl/TRMNL${trmnl_event_big_cut}-Regular.ttf
+    id: trmnl_event_big
+    size: ${trmnl_event_big_size}
+    glyphsets: [GF_Latin_Core]
+    # Not every GF_Latin_Core glyph is in the font: the missing-glyph
+    # warnings are noise.
+    ignore_missing_glyphs: true
+  # 3-day view events
+  - file: ../fonts/trmnl/TRMNL${trmnl_event_cut}-Regular.ttf
+    id: trmnl_event
+    size: ${trmnl_event_size}
+    glyphsets: [GF_Latin_Core]
+    # Not every GF_Latin_Core glyph is in the font: the missing-glyph
+    # warnings are noise.
+    ignore_missing_glyphs: true
+  # Header sub-line, footer hint
+  - file: ../fonts/trmnl/TRMNL${trmnl_small_cut}-Regular.ttf
+    id: trmnl_small
+    size: ${trmnl_small_size}
+    glyphsets: [GF_Latin_Core]
+    # Not every GF_Latin_Core glyph is in the font: the missing-glyph
+    # warnings are noise.
     ignore_missing_glyphs: true

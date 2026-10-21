@@ -1,0 +1,175 @@
+# The shared body of the screenshot configs (screenshots-*.yaml in this
+# folder, one per device): the host platform, the stubs for everything
+# the render lambda reads (same ids as the device config, demo values
+# instead of device state) and the demo events. Each top-level config adds
+# the device's font preset, its display(s) and the snapshot steps.
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        # Seed the same state the real device would have after a fetch:
+        # demo events for today and the two following days.
+        - lambda: |-
+            id(calendar_ids).publish_state("calendar.family, calendar.work");
+            id(battery_voltage).publish_state(4.02f);
+            id(battery_pct).publish_state(81.0f);
+            id(room_temperature) = 21.5f;
+            id(room_humidity) = 48.0f;
+            const time_t now_ts = id(ha_time).now().timestamp;
+            // "YYYY-MM-DD" for today + offset days
+            auto day_str = [&](int offset) -> std::string {
+              return ESPTime::from_epoch_local(now_ts + (time_t) offset * 86400).strftime("%Y-%m-%d");
+            };
+            // Timed events carry the "YYYY-MM-DD HH:MM:SS" shape the fetch
+            // script stores; all-day events are 10-character dates.
+            auto timed = [&](int offset, const char *hm) -> std::string { return day_str(offset) + " " + hm; };
+            auto add = [&](const std::string &start, const std::string &end, const char *title) {
+              id(cal_starts).push_back(start);
+              id(cal_ends).push_back(end);
+              id(cal_titles).push_back(title);
+            };
+            // Kept sorted by start, as the fetch script would deliver them
+            add(day_str(0), day_str(1), "School holidays");
+            add(timed(0, "08:30:00"), timed(0, "09:00:00"), "School drop-off");
+            add(timed(0, "09:30:00"), timed(0, "09:45:00"), "Team standup");
+            add(timed(0, "12:00:00"), timed(0, "13:00:00"), "Lunch date");
+            add(timed(0, "15:00:00"), timed(0, "16:00:00"), "Project review");
+            add(timed(0, "18:30:00"), timed(0, "19:30:00"), "Football practice");
+            add(timed(1, "10:00:00"), timed(1, "10:45:00"), "Dentist");
+            add(timed(1, "17:00:00"), timed(1, "17:30:00"), "Grocery pickup");
+            add(day_str(2), day_str(3), "Conference day");
+            add(timed(2, "21:15:00"), timed(2, "22:40:00"), "Train home");
+            id(setup_done) = true;
+            id(data_state) = 1;
+            id(fetched_at) = now_ts;
+            id(cal_from) = day_str(0);
+            id(cal_to) = day_str(3);
+
+host:
+
+logger:
+
+time:
+  - platform: host
+    id: ha_time
+
+# ---- Stubs for everything the render lambda reads ----
+# Same ids as the device config, demo values instead of device state.
+
+globals:
+  - id: day_offset
+    type: int
+    initial_value: "0"
+  - id: view_days
+    type: int
+    initial_value: "1"
+  - id: portrait_mode
+    type: bool
+    initial_value: "false"
+  - id: setup_done
+    type: bool
+    initial_value: "false"
+  - id: wifi_setup
+    type: bool
+    initial_value: "false"
+  - id: ap_ssid
+    type: std::string
+    initial_value: '"paper-calendar-1a2b3c"'
+  - id: data_state
+    type: int
+    initial_value: "0"
+  - id: room_temperature
+    type: float
+    initial_value: "NAN"
+  - id: room_humidity
+    type: float
+    initial_value: "NAN"
+  - id: cal_starts
+    type: std::vector<std::string>
+  - id: cal_ends
+    type: std::vector<std::string>
+  - id: cal_titles
+    type: std::vector<std::string>
+  - id: fetched_at
+    type: time_t
+    initial_value: "0"
+  - id: cal_from
+    type: std::string
+  - id: cal_to
+    type: std::string
+
+text:
+  - platform: template
+    id: calendar_ids
+    name: Calendars
+    mode: text
+    optimistic: true
+
+switch:
+  - platform: template
+    id: clock_12h
+    name: 12-hour time
+    optimistic: true
+
+select:
+  - platform: template
+    id: title_overflow
+    name: Long event names
+    options:
+      - Truncate
+      - Word wrap
+    initial_option: Truncate
+    optimistic: true
+
+  - platform: template
+    id: battery_display_mode
+    name: Battery display
+    options:
+      - Percentage
+      - Voltage
+      - Both
+    initial_option: Percentage
+    optimistic: true
+
+  - platform: template
+    id: climate_display_mode
+    name: Climate display
+    options:
+      - "Off"
+      - Temperature
+      - Temperature and humidity
+    initial_option: Temperature
+    optimistic: true
+
+  - platform: template
+    id: font_family
+    name: Font
+    options:
+      - Terminus
+      - TRMNL
+    initial_option: Terminus
+    optimistic: true
+
+  - platform: template
+    id: temperature_unit
+    name: Temperature unit
+    options:
+      - Celsius
+      - Fahrenheit
+    initial_option: Celsius
+    optimistic: true
+
+sensor:
+  - platform: template
+    id: battery_voltage
+    name: Battery voltage
+    update_interval: never
+  - platform: template
+    id: battery_pct
+    name: Battery
+    update_interval: never
+
+qr_code:
+  - id: wifi_qr
+    value: "WIFI:T:nopass;S:paper-calendar;;"
